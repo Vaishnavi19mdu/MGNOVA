@@ -1,0 +1,8 @@
+{
+  "name": "MGNOVA Premium Freelance Ecosystem",
+  "description": "A luxury editorial freelance platform for elite talent discovery, milestone collaboration, and premium fintech workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
