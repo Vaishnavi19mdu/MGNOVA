@@ -595,7 +595,7 @@ export default function FreelancerDashboard() {
   const [authLoading, setAuthLoading]   = useState(true);
   const [userProfile, setUserProfile]   = useState<UserProfile | null>(null);
 
-  const [proposals,     setProposals]     = useState<Proposal[]>(SEED_PROPOSALS);
+  const [proposals,     setProposals]     = useState<Proposal[]>([]);
   const [contracts,     setContracts]     = useState<Contract[]>(SEED_CONTRACTS);
   const [milestones,    setMilestones]    = useState<Milestone[]>(SEED_MILESTONES);
   const [transactions,  setTransactions]  = useState<Transaction[]>(SEED_TRANSACTIONS);
@@ -639,11 +639,13 @@ export default function FreelancerDashboard() {
           }
         } catch (e) { console.error('Failed to load profile', e); }
 
-        // Load proposals
+        // Load proposals (real-time so new ones appear instantly)
         try {
           const q = query(collection(db, 'proposals'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
-          const snap = await getDocs(q);
-          if (!snap.empty) setProposals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Proposal)));
+          const unsubProposals = onSnapshot(q, snap => {
+            setProposals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Proposal)));
+          });
+          // Note: unsubscribe handled by auth unsub cleanup
         } catch (e) {}
 
         // Load contracts
@@ -696,7 +698,8 @@ export default function FreelancerDashboard() {
     setProfileOpen(false); setNotifOpen(false);
   };
 
-  const handleGenerateProposal = (p: Project) => { setSelectedProject(p); setGenerateProposalOpen(true); };
+  const handleGenerateProposal  = (p: Project) => { setSelectedProject(p); setGenerateProposalOpen(true); };
+  const handleProposalCreated   = (p: any) => setProposals(prev => [p, ...prev]);
   const handleViewContract      = (c: Contract) => { setSelectedContract(c); setViewContractOpen(true);  };
   const handleSubmitWork        = (c: Contract) => { setSelectedContract(c); setSubmitWorkOpen(true);    };
   const handleProfileUpdated    = (updates: Partial<UserProfile>) => setUserProfile(prev => prev ? { ...prev, ...updates } : prev);
@@ -735,8 +738,7 @@ export default function FreelancerDashboard() {
   return (
     <div style={{ minHeight: '100vh', background: C.ivory, color: C.coffee, fontFamily: "'Cormorant Garamond', 'Georgia', serif", display: 'flex' }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap');
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700,800&display=swap');        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${C.rodeo}60; border-radius: 99px; }
@@ -746,7 +748,7 @@ export default function FreelancerDashboard() {
       `}</style>
 
       {/* Modals */}
-      <NewProposalModal      open={newProposalOpen}      onClose={() => setNewProposalOpen(false)}      userProfile={userProfile} />
+      <NewProposalModal      open={newProposalOpen}      onClose={() => setNewProposalOpen(false)}      userProfile={userProfile} onProposalCreated={handleProposalCreated} />
       <GenerateProposalModal open={generateProposalOpen} onClose={() => setGenerateProposalOpen(false)} project={selectedProject} userProfile={userProfile} />
       <ViewContractModal     open={viewContractOpen}     onClose={() => setViewContractOpen(false)}     contract={selectedContract} />
       <SubmitWorkModal       open={submitWorkOpen}       onClose={() => setSubmitWorkOpen(false)}       contract={selectedContract} />

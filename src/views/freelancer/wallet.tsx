@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
+import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowUpRight, ArrowDownRight, Download, Filter, Plus,
@@ -466,7 +468,7 @@ function PayMethodSelector({ selected, onSelect }: { selected: string; onSelect:
           style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10, border: `1.5px solid ${selected === m.key ? C.green : `${C.rodeo}50`}`, background: selected === m.key ? C.greenLight : '#fff', cursor: 'pointer', transition: 'all .18s' }}>
           <div style={{ width: 40, height: 40, borderRadius: 9, background: selected === m.key ? '#fff' : C.ivory, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{m.emoji}</div>
           <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '0 0 2px', fontFamily: "'DM Sans', sans-serif" }}>{m.label}</p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '0 0 2px', fontFamily: "'Satoshi', sans-serif" }}>{m.label}</p>
             <p style={{ ...s.label, margin: 0 }}>{m.sub}</p>
           </div>
           <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${selected === m.key ? C.green : `${C.rodeo}60`}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -493,7 +495,7 @@ function UPIPanel({ value, onChange }: { value: string; onChange: (v: string) =>
           </button>
         ))}
       </div>
-      <p style={{ fontSize: 11, color: C.gray, margin: '8px 0 0', fontFamily: "'DM Sans', sans-serif" }}>
+      <p style={{ fontSize: 11, color: C.gray, margin: '8px 0 0', fontFamily: "'Satoshi', sans-serif" }}>
         ℹ Demo environment — no real UPI transaction will occur
       </p>
     </div>
@@ -528,8 +530,8 @@ function NetBankingPanel() {
       {banks.map(b => (
         <div key={b} onClick={() => setSel(b)}
           style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${sel === b ? C.green : `${C.rodeo}40`}`, background: sel === b ? C.greenLight : '#fff', cursor: 'pointer', transition: 'all .18s' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 7, background: colors[b], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', flexShrink: 0, fontFamily: "'DM Sans', sans-serif" }}>{shorts[b]}</div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.coffee, fontFamily: "'DM Sans', sans-serif" }}>{b}</span>
+          <div style={{ width: 32, height: 32, borderRadius: 7, background: colors[b], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', flexShrink: 0, fontFamily: "'Satoshi', sans-serif" }}>{shorts[b]}</div>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.coffee, fontFamily: "'Satoshi', sans-serif" }}>{b}</span>
           {sel === b && <CheckCircle size={15} color={C.green} style={{ marginLeft: 'auto' }} />}
         </div>
       ))}
@@ -549,13 +551,13 @@ function PaymentProcessing({ label, subLabel }: { label: string; subLabel: strin
         style={{ width: 64, height: 64, borderRadius: '50%', background: C.goldLight, margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <RefreshCw size={26} color={C.gold} />
       </motion.div>
-      <p style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 6px', fontFamily: "'DM Sans', sans-serif" }}>{label}</p>
-      <p style={{ fontSize: 12, color: C.gray, margin: '0 0 24px', fontFamily: "'DM Sans', sans-serif" }}>{subLabel}</p>
+      <p style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 6px', fontFamily: "'Satoshi', sans-serif" }}>{label}</p>
+      <p style={{ fontSize: 12, color: C.gray, margin: '0 0 24px', fontFamily: "'Satoshi', sans-serif" }}>{subLabel}</p>
       <div style={{ height: 4, background: `${C.rodeo}25`, borderRadius: 99, overflow: 'hidden', marginBottom: 8 }}>
         <motion.div style={{ height: '100%', background: C.green, borderRadius: 99 }} animate={{ width: `${prog}%` }} transition={{ duration: .3 }} />
       </div>
-      <p style={{ fontSize: 12, color: C.gray, fontFamily: "'DM Sans', sans-serif" }}>{Math.round(prog)}%</p>
-      <p style={{ fontSize: 10, color: C.gray, margin: '16px 0 0', fontFamily: "'DM Sans', sans-serif" }}>🔒 256-bit SSL Encrypted · Demo Payment Environment</p>
+      <p style={{ fontSize: 12, color: C.gray, fontFamily: "'Satoshi', sans-serif" }}>{Math.round(prog)}%</p>
+      <p style={{ fontSize: 10, color: C.gray, margin: '16px 0 0', fontFamily: "'Satoshi', sans-serif" }}>🔒 256-bit SSL Encrypted · Demo Payment Environment</p>
     </div>
   );
 }
@@ -599,14 +601,14 @@ export function ReleaseMilestoneModal({ open, onClose, milestone, onSuccess }: {
       {step === 'select' && (
         <>
           <div style={{ background: C.ivory, borderRadius: 10, padding: '12px 16px', marginBottom: 18 }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: '0 0 6px', fontFamily: "'DM Sans', sans-serif" }}>{milestone.proj}</p>
+            <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: '0 0 6px', fontFamily: "'Satoshi', sans-serif" }}>{milestone.proj}</p>
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-              <div><p style={s.label}>Amount</p><p style={{ fontSize: 22, fontWeight: 800, color: C.green, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{milestone.amt}</p></div>
-              <div><p style={s.label}>Client</p><p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{milestone.client}</p></div>
-              <div><p style={s.label}>Milestone</p><p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{milestone.ms}</p></div>
+              <div><p style={s.label}>Amount</p><p style={{ fontSize: 22, fontWeight: 800, color: C.green, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{milestone.amt}</p></div>
+              <div><p style={s.label}>Client</p><p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{milestone.client}</p></div>
+              <div><p style={s.label}>Milestone</p><p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{milestone.ms}</p></div>
             </div>
           </div>
-          <p style={{ fontSize: 11, fontWeight: 700, color: C.coffee, letterSpacing: '.06em', marginBottom: 10, fontFamily: "'DM Sans', sans-serif" }}>SELECT PAYMENT METHOD</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: C.coffee, letterSpacing: '.06em', marginBottom: 10, fontFamily: "'Satoshi', sans-serif" }}>SELECT PAYMENT METHOD</p>
           <PayMethodSelector selected={payMethod} onSelect={setPayMethod} />
           {payMethod === 'upi' && <UPIPanel value={upiId} onChange={setUpiId} />}
           {payMethod === 'card' && <CardPanel />}
@@ -614,8 +616,8 @@ export function ReleaseMilestoneModal({ open, onClose, milestone, onSuccess }: {
           {payMethod === 'wallet' && (
             <div style={{ marginTop: 16, background: C.greenLight, border: `1px solid ${C.greenMid}`, borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
               <p style={s.label}>MG Nova Wallet Credits</p>
-              <p style={{ fontSize: 22, fontWeight: 800, color: C.green, margin: '4px 0', fontFamily: "'DM Sans', sans-serif" }}>₹1,24,350</p>
-              <p style={{ fontSize: 11, color: C.gray, fontFamily: "'DM Sans', sans-serif" }}>Available balance</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: C.green, margin: '4px 0', fontFamily: "'Satoshi', sans-serif" }}>₹1,24,350</p>
+              <p style={{ fontSize: 11, color: C.gray, fontFamily: "'Satoshi', sans-serif" }}>Available balance</p>
             </div>
           )}
           <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
@@ -624,7 +626,7 @@ export function ReleaseMilestoneModal({ open, onClose, milestone, onSuccess }: {
               <Zap size={14} /> Proceed to Pay {milestone.amt}
             </button>
           </div>
-          <p style={{ textAlign: 'center', fontSize: 10, color: C.gray, margin: '10px 0 0', fontFamily: "'DM Sans', sans-serif" }}>
+          <p style={{ textAlign: 'center', fontSize: 10, color: C.gray, margin: '10px 0 0', fontFamily: "'Satoshi', sans-serif" }}>
             🔒 256-bit encrypted · Demo Payment Environment
           </p>
         </>
@@ -638,9 +640,9 @@ export function ReleaseMilestoneModal({ open, onClose, milestone, onSuccess }: {
             style={{ width: 72, height: 72, borderRadius: '50%', background: C.greenLight, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle size={32} color={C.green} />
           </motion.div>
-          <p style={{ fontSize: 28, fontWeight: 800, color: C.green, margin: '0 0 6px', fontFamily: "'DM Sans', sans-serif" }}>{milestone.amt}</p>
-          <p style={{ fontSize: 15, fontWeight: 600, color: C.coffee, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>Successfully Released!</p>
-          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 24px', fontFamily: "'DM Sans', sans-serif" }}>{milestone.proj} · {milestone.client}</p>
+          <p style={{ fontSize: 28, fontWeight: 800, color: C.green, margin: '0 0 6px', fontFamily: "'Satoshi', sans-serif" }}>{milestone.amt}</p>
+          <p style={{ fontSize: 15, fontWeight: 600, color: C.coffee, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>Successfully Released!</p>
+          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 24px', fontFamily: "'Satoshi', sans-serif" }}>{milestone.proj} · {milestone.client}</p>
           <div style={{ background: C.greenLight, borderRadius: 12, padding: '14px 16px', textAlign: 'left', marginBottom: 20, border: `1px solid ${C.greenMid}` }}>
             {[['Transaction ID', txnId], ['Time', ts], ['Method', payMethod === 'upi' ? `UPI • ${upiId || 'demo@okaxis'}` : payMethod.toUpperCase()], ['Status', 'SUCCESS ✓']].map(([l, v]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.greenMid}` }}>
@@ -661,7 +663,7 @@ export function ReleaseMilestoneModal({ open, onClose, milestone, onSuccess }: {
             </button>
             <button onClick={onClose} style={{ ...s.btn, ...s.btnPrimary }}><Check size={13} /> Done</button>
           </div>
-          <p style={{ fontSize: 10, color: C.gray, margin: '12px 0 0', fontFamily: "'DM Sans', sans-serif" }}>Funds credited to your MG Nova wallet instantly</p>
+          <p style={{ fontSize: 10, color: C.gray, margin: '12px 0 0', fontFamily: "'Satoshi', sans-serif" }}>Funds credited to your MG Nova wallet instantly</p>
         </motion.div>
       )}
     </Modal>
@@ -702,12 +704,12 @@ export function WithdrawModal({ open, onClose, balance, onSuccess }: {
       {step === 'select' && (
         <>
           <div style={{ background: C.greenLight, border: `1px solid ${C.greenMid}`, borderRadius: 10, padding: '14px 16px', marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><p style={s.label}>Available Balance</p><p style={{ fontSize: 24, fontWeight: 800, color: C.green, margin: '4px 0 0', fontFamily: "'DM Sans', sans-serif" }}>₹{fmtINR(balance)}</p></div>
+            <div><p style={s.label}>Available Balance</p><p style={{ fontSize: 24, fontWeight: 800, color: C.green, margin: '4px 0 0', fontFamily: "'Satoshi', sans-serif" }}>₹{fmtINR(balance)}</p></div>
             <Wallet size={28} color={C.green} />
           </div>
           <label style={{ ...s.label, display: 'block', marginBottom: 6 }}>Withdrawal Amount</label>
           <div style={{ position: 'relative', marginBottom: 12 }}>
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, fontWeight: 700, color: C.green, fontFamily: "'DM Sans', sans-serif" }}>₹</span>
+            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, fontWeight: 700, color: C.green, fontFamily: "'Satoshi', sans-serif" }}>₹</span>
             <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Enter amount"
               style={{ ...s.input, paddingLeft: 28, fontSize: 16, fontWeight: 600 }} />
           </div>
@@ -724,9 +726,9 @@ export function WithdrawModal({ open, onClose, balance, onSuccess }: {
             {BANKS.map((b, i) => (
               <div key={b.name} onClick={() => setSelBank(i)}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 10, border: `1.5px solid ${selBank === i ? C.green : `${C.rodeo}40`}`, background: selBank === i ? C.greenLight : '#fff', cursor: 'pointer', transition: 'all .18s' }}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: b.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0, fontFamily: "'DM Sans', sans-serif" }}>{b.short}</div>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: b.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0, fontFamily: "'Satoshi', sans-serif" }}>{b.short}</div>
                 <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '0 0 2px', fontFamily: "'DM Sans', sans-serif" }}>{b.name}</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '0 0 2px', fontFamily: "'Satoshi', sans-serif" }}>{b.name}</p>
                   <p style={{ ...s.label, margin: 0 }}>Savings {b.acno} · IFSC {b.ifsc}</p>
                 </div>
                 <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${selBank === i ? C.green : `${C.rodeo}50`}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -738,13 +740,13 @@ export function WithdrawModal({ open, onClose, balance, onSuccess }: {
           {error && (
             <div style={{ background: C.redLight, border: `1px solid ${C.red}30`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
               <AlertCircle size={14} color={C.red} />
-              <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{error}</p>
+              <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>{error}</p>
             </div>
           )}
           <button onClick={proceed} style={{ ...s.btn, ...s.btnPrimary, width: '100%', justifyContent: 'center', fontSize: 14, padding: '12px' }}>
             <ArrowUpRight size={15} /> Withdraw{amount ? ` ₹${fmtINR(parseFloat(amount) || 0)}` : ' Funds'}
           </button>
-          <p style={{ textAlign: 'center', fontSize: 10, color: C.gray, margin: '10px 0 0', fontFamily: "'DM Sans', sans-serif" }}>
+          <p style={{ textAlign: 'center', fontSize: 10, color: C.gray, margin: '10px 0 0', fontFamily: "'Satoshi', sans-serif" }}>
             Funds typically settle in 1–2 business days · Demo Environment
           </p>
         </>
@@ -758,9 +760,9 @@ export function WithdrawModal({ open, onClose, balance, onSuccess }: {
             style={{ width: 72, height: 72, borderRadius: '50%', background: C.greenLight, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle size={32} color={C.green} />
           </motion.div>
-          <p style={{ fontSize: 28, fontWeight: 800, color: C.green, margin: '0 0 6px', fontFamily: "'DM Sans', sans-serif" }}>₹{fmtINR(parseFloat(amount))}</p>
-          <p style={{ fontSize: 15, fontWeight: 600, color: C.coffee, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>Transfer Initiated!</p>
-          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 24px', fontFamily: "'DM Sans', sans-serif" }}>{BANKS[selBank].name} {BANKS[selBank].acno}</p>
+          <p style={{ fontSize: 28, fontWeight: 800, color: C.green, margin: '0 0 6px', fontFamily: "'Satoshi', sans-serif" }}>₹{fmtINR(parseFloat(amount))}</p>
+          <p style={{ fontSize: 15, fontWeight: 600, color: C.coffee, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>Transfer Initiated!</p>
+          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 24px', fontFamily: "'Satoshi', sans-serif" }}>{BANKS[selBank].name} {BANKS[selBank].acno}</p>
           <div style={{ background: C.greenLight, borderRadius: 12, padding: '14px 16px', textAlign: 'left', marginBottom: 20, border: `1px solid ${C.greenMid}` }}>
             {[['Reference ID', txnId], ['Bank', BANKS[selBank].name], ['Account', BANKS[selBank].acno], ['IFSC', BANKS[selBank].ifsc], ['Time', ts]].map(([l, v]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.greenMid}` }}>
@@ -776,7 +778,7 @@ export function WithdrawModal({ open, onClose, balance, onSuccess }: {
             </button>
             <button onClick={onClose} style={{ ...s.btn, ...s.btnPrimary }}><Check size={13} /> Done</button>
           </div>
-          <p style={{ fontSize: 10, color: C.gray, margin: '12px 0 0', fontFamily: "'DM Sans', sans-serif" }}>
+          <p style={{ fontSize: 10, color: C.gray, margin: '12px 0 0', fontFamily: "'Satoshi', sans-serif" }}>
             Typically reflects in your bank within 30 minutes
           </p>
         </motion.div>
@@ -820,7 +822,7 @@ export function TransferModal({ open, onClose, balance, onSuccess }: {
       {step === 'form' && (
         <>
           <div style={{ background: C.greenLight, border: `1px solid ${C.greenMid}`, borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div><p style={s.label}>Wallet Balance</p><p style={{ fontSize: 20, fontWeight: 800, color: C.green, margin: '4px 0 0', fontFamily: "'DM Sans', sans-serif" }}>₹{fmtINR(balance)}</p></div>
+            <div><p style={s.label}>Wallet Balance</p><p style={{ fontSize: 20, fontWeight: 800, color: C.green, margin: '4px 0 0', fontFamily: "'Satoshi', sans-serif" }}>₹{fmtINR(balance)}</p></div>
             <Send size={24} color={C.green} />
           </div>
           <label style={{ ...s.label, display: 'block', marginBottom: 5 }}>Recipient UPI ID *</label>
@@ -838,7 +840,7 @@ export function TransferModal({ open, onClose, balance, onSuccess }: {
           {error && (
             <div style={{ background: C.redLight, border: `1px solid ${C.red}30`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
               <AlertCircle size={14} color={C.red} />
-              <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{error}</p>
+              <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>{error}</p>
             </div>
           )}
           <div style={{ display: 'flex', gap: 10 }}>
@@ -856,9 +858,9 @@ export function TransferModal({ open, onClose, balance, onSuccess }: {
             style={{ width: 72, height: 72, borderRadius: '50%', background: C.greenLight, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle size={32} color={C.green} />
           </motion.div>
-          <p style={{ fontSize: 26, fontWeight: 800, color: C.coffee, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>₹{fmtINR(parseFloat(amount))}</p>
-          <p style={{ fontSize: 15, fontWeight: 600, color: C.coffee, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>Transfer Successful!</p>
-          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 20px', fontFamily: "'DM Sans', sans-serif" }}>To: {toUpi}</p>
+          <p style={{ fontSize: 26, fontWeight: 800, color: C.coffee, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>₹{fmtINR(parseFloat(amount))}</p>
+          <p style={{ fontSize: 15, fontWeight: 600, color: C.coffee, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>Transfer Successful!</p>
+          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 20px', fontFamily: "'Satoshi', sans-serif" }}>To: {toUpi}</p>
           <div style={{ background: C.greenLight, borderRadius: 12, padding: '14px 16px', textAlign: 'left', marginBottom: 20, border: `1px solid ${C.greenMid}` }}>
             {[['Reference ID', txnId], ['To', toUpi], ['Note', note || 'N/A'], ['Time', ts], ['Mode', 'UPI']].map(([l, v]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${C.greenMid}` }}>
@@ -895,20 +897,62 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
   const totalEarned = transactions.filter(t => t.type === 'credit' && t.status === 'success').reduce((a, t) => a + t.rawAmt, 0);
   const totalPending = transactions.filter(t => t.status === 'pending').reduce((a, t) => a + t.rawAmt, 0);
 
-  const handleMilestoneRelease = (txn: IndianTransaction) => {
-    setBalance(b => b + txn.rawAmt);
+  const handleMilestoneRelease = async (txn: IndianTransaction) => {
+    const newBalance = balance + txn.rawAmt;
+
+    // Optimistic UI update
+    setBalance(newBalance);
     setTransactions(prev => [txn, ...prev]);
     setMilestones(prev => prev.map(m => m.id === selectedMS?.id ? { ...m, status: 'released' as const } : m));
     setReleaseOpen(false);
+
+    // Persist to Firestore
+    try {
+      await updateDoc(doc(db, 'wallets', 'current'), {
+        balance: newBalance,
+        updatedAt: serverTimestamp(),
+      });
+      await setDoc(doc(db, 'transactions', txn.id), {
+        ...txn,
+        createdAt: serverTimestamp(),
+      });
+      if (selectedMS) {
+        await updateDoc(doc(db, 'milestones', selectedMS.id), {
+          status: 'released',
+          releasedAt: serverTimestamp(),
+        });
+      }
+    } catch (err) {
+      console.error('Firestore write failed (milestone release):', err);
+    }
   };
 
-  const handleWithdrawSuccess = (amt: number, bank: typeof BANKS[0], txnId: string) => {
+  const handleWithdrawSuccess = async (amt: number, bank: typeof BANKS[0], txnId: string) => {
     const timestamp = nowTs();
-    setBalance(b => b - amt);
-    setTransactions(prev => [{
+    const newBalance = balance - amt;
+    const newTxn: IndianTransaction = {
       id: txnId, desc: `Withdrawal to ${bank.name} ${bank.acno}`, amt: `-₹${fmtINR(amt)}`,
       rawAmt: -amt, date: timestamp, type: 'debit' as const, status: 'success' as const, via: 'IMPS',
-    }, ...prev]);
+    };
+
+    // Optimistic UI update
+    setBalance(newBalance);
+    setTransactions(prev => [newTxn, ...prev]);
+
+    // Persist to Firestore
+    try {
+      await updateDoc(doc(db, 'wallets', 'current'), {
+        balance: newBalance,
+        updatedAt: serverTimestamp(),
+      });
+      await setDoc(doc(db, 'transactions', txnId), {
+        ...newTxn,
+        bank: { name: bank.name, acno: bank.acno, ifsc: bank.ifsc },
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('Firestore write failed (withdrawal):', err);
+    }
     // keep modal open so user can download receipt — modal closes on Done
   };
 
@@ -948,17 +992,17 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
         <div style={{ position: 'relative' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,.1)', borderRadius: 5, padding: '3px 10px', marginBottom: 12 }}>
             <Shield size={10} color={`${C.ivory}70`} />
-            <span style={{ fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: `${C.ivory}60`, fontFamily: "'DM Sans', sans-serif" }}>Demo Payment Environment</span>
+            <span style={{ fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: `${C.ivory}60`, fontFamily: "'Satoshi', sans-serif" }}>Demo Payment Environment</span>
           </div>
-          <p style={{ fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: `${C.ivory}55`, marginBottom: 8, fontFamily: "'DM Sans', sans-serif" }}>Available Balance</p>
-          <p style={{ fontSize: isMobile ? 34 : 44, fontWeight: 800, color: C.ivory, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif", letterSpacing: '-.02em' }}>
+          <p style={{ fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: `${C.ivory}55`, marginBottom: 8, fontFamily: "'Satoshi', sans-serif" }}>Available Balance</p>
+          <p style={{ fontSize: isMobile ? 34 : 44, fontWeight: 800, color: C.ivory, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif", letterSpacing: '-.02em' }}>
             ₹<span>{fmtINR(balance)}</span><span style={{ fontSize: 20, fontWeight: 400, opacity: .5 }}>.00</span>
           </p>
           <div style={{ display: 'flex', gap: isMobile ? 16 : 32, flexWrap: 'wrap', margin: '12px 0 22px' }}>
             {[['Pending Clearance', '₹18,500'], ['Escrow Balance', '₹45,000'], ['Total Withdrawn', `₹${fmtINR(totalWithdrawn)}`]].map(([l, v]) => (
               <div key={l}>
-                <p style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: `${C.ivory}50`, marginBottom: 3, fontFamily: "'DM Sans', sans-serif" }}>{l}</p>
-                <p style={{ fontSize: 14, fontWeight: 700, color: `${C.ivory}75`, fontFamily: "'DM Sans', sans-serif" }}>{v}</p>
+                <p style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: `${C.ivory}50`, marginBottom: 3, fontFamily: "'Satoshi', sans-serif" }}>{l}</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: `${C.ivory}75`, fontFamily: "'Satoshi', sans-serif" }}>{v}</p>
               </div>
             ))}
           </div>
@@ -984,8 +1028,8 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
         ].map((stat, i) => (
           <motion.div key={stat.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .07 }} style={s.card}>
             <p style={{ ...s.label, marginBottom: 4 }}>{stat.label}</p>
-            <p style={{ fontSize: 20, fontWeight: 700, color: stat.color, margin: '0 0 3px', fontFamily: "'DM Sans', sans-serif" }}>{stat.value}</p>
-            <p style={{ fontSize: 11, color: stat.color, fontFamily: "'DM Sans', sans-serif", opacity: .8 }}>{stat.sub}</p>
+            <p style={{ fontSize: 20, fontWeight: 700, color: stat.color, margin: '0 0 3px', fontFamily: "'Satoshi', sans-serif" }}>{stat.value}</p>
+            <p style={{ fontSize: 11, color: stat.color, fontFamily: "'Satoshi', sans-serif", opacity: .8 }}>{stat.sub}</p>
           </motion.div>
         ))}
       </div>
@@ -994,7 +1038,7 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
       <div style={{ display: 'flex', gap: 4, background: '#fff', border: `1px solid ${C.rodeo}30`, borderRadius: 10, padding: 4, marginBottom: 20 }}>
         {tabs.map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
-            style={{ flex: 1, padding: '8px 6px', borderRadius: 7, border: 'none', background: activeTab === t.key ? C.green : 'transparent', color: activeTab === t.key ? '#fff' : C.gray, fontSize: isMobile ? 10 : 12, fontWeight: 600, cursor: 'pointer', transition: 'all .18s', fontFamily: "'DM Sans', sans-serif" }}>
+            style={{ flex: 1, padding: '8px 6px', borderRadius: 7, border: 'none', background: activeTab === t.key ? C.green : 'transparent', color: activeTab === t.key ? '#fff' : C.gray, fontSize: isMobile ? 10 : 12, fontWeight: 600, cursor: 'pointer', transition: 'all .18s', fontFamily: "'Satoshi', sans-serif" }}>
             {t.label}
           </button>
         ))}
@@ -1005,7 +1049,7 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.rodeo}25`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div>
-              <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>All Transactions</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>All Transactions</p>
               <p style={{ ...s.label, margin: '2px 0 0' }}>{transactions.length} transactions</p>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -1023,12 +1067,12 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
                   {tx.type === 'credit' ? <ArrowUpRight size={16} color={C.green} /> : <ArrowDownRight size={16} color={C.copper} />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '0 0 2px', fontFamily: "'DM Sans', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.desc}</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '0 0 2px', fontFamily: "'Satoshi', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.desc}</p>
                   <p style={{ ...s.label, margin: 0 }}><span style={{ fontFamily: 'monospace' }}>{tx.id}</span> · {tx.via}</p>
                 </div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-                <p style={{ fontSize: 14, fontWeight: 700, color: tx.type === 'credit' ? C.green : C.copper, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>{tx.amt}</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: tx.type === 'credit' ? C.green : C.copper, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>{tx.amt}</p>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
                   <Badge color={tx.status === 'success' ? C.green : C.gold}>{tx.status === 'success' ? '✓ Success' : '⏳ Pending'}</Badge>
                   {tx.status === 'success' && (
@@ -1055,11 +1099,11 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
               <motion.div key={m.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .07 }} style={s.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                   <div>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: '0 0 3px', fontFamily: "'DM Sans', sans-serif" }}>{m.proj}</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: '0 0 3px', fontFamily: "'Satoshi', sans-serif" }}>{m.proj}</p>
                     <p style={{ ...s.label, margin: 0 }}>{m.ms} · {m.client}</p>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontSize: 22, fontWeight: 800, color: C.green, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>{m.amt}</p>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: C.green, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>{m.amt}</p>
                     <span style={{ ...s.tag(cfg.color), background: cfg.bg }}>{cfg.label}</span>
                   </div>
                 </div>
@@ -1094,7 +1138,7 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', borderBottom: `1px solid ${C.rodeo}25`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>Tax Invoices</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: C.coffee, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>Tax Invoices</p>
               <p style={{ ...s.label, margin: '2px 0 0' }}>Auto-generated · GST compliant</p>
             </div>
             <button style={{ ...s.btn, ...s.btnPrimary, fontSize: 12 }}><Plus size={12} /> New Invoice</button>
@@ -1104,12 +1148,12 @@ export function WalletPage({ isMobile }: { isMobile: boolean }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 9, background: C.goldLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📄</div>
                 <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '0 0 2px', fontFamily: "'DM Sans', sans-serif" }}>{inv.proj}</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '0 0 2px', fontFamily: "'Satoshi', sans-serif" }}>{inv.proj}</p>
                   <p style={{ ...s.label, margin: 0 }}>{inv.id} · {inv.client} · GSTIN {inv.gstin}</p>
                 </div>
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: C.green, margin: '0 0 6px', fontFamily: "'DM Sans', sans-serif" }}>{inv.amt}</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: C.green, margin: '0 0 6px', fontFamily: "'Satoshi', sans-serif" }}>{inv.amt}</p>
                 <button
                   style={{ ...s.btn, background: C.greenLight, color: C.green, border: 'none', padding: '4px 12px', fontSize: 11 }}
                   onClick={() => downloadInvoicePDF(inv)}>

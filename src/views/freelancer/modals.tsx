@@ -16,7 +16,7 @@ import {
   EmailAuthProvider,
 } from 'firebase/auth';
 import {
-  doc, addDoc, collection, serverTimestamp, updateDoc,
+  doc, addDoc, collection, serverTimestamp, updateDoc, increment,
 } from 'firebase/firestore';
 import { C, s, UserProfile, Contract, Project } from './types-and-data';
 import { Modal } from './shared-components';
@@ -24,24 +24,45 @@ import { Modal } from './shared-components';
 // ─── Delete Account Modal ─────────────────────────────────────────────────────
 export function DeleteAccountModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [confirm, setConfirm] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Re-auth is required before user.delete() or Firebase throws
+  // "requires-recent-login". We collect the password and re-auth first.
   const handleDelete = async () => {
     if (confirm !== 'DELETE') { setError('Type DELETE to confirm.'); return; }
+    if (!currentPassword) { setError('Enter your current password to confirm.'); return; }
     setLoading(true);
+    setError('');
     try {
       const user = auth.currentUser;
-      if (!user) throw new Error('Not authenticated');
-      await updateDoc(doc(db, 'users', user.uid), { deleted: true, deletedAt: serverTimestamp() });
+      if (!user || !user.email) throw new Error('Not authenticated');
+
+      // Re-authenticate so Firebase accepts the sensitive delete operation
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+
+      // Soft-delete marker in Firestore first, then hard-delete the auth account
+      await updateDoc(doc(db, 'users', user.uid), {
+        deleted: true,
+        deletedAt: serverTimestamp(),
+      });
       await user.delete();
+      // Parent should handle redirect/sign-out after this resolves
     } catch (e: any) {
-      setError(e.message ?? 'Failed to delete account. You may need to re-login first.');
+      const msg =
+        e.code === 'auth/wrong-password' ? 'Incorrect password.' :
+        e.code === 'auth/too-many-requests' ? 'Too many attempts. Try again later.' :
+        e.message ?? 'Failed to delete account.';
+      setError(msg);
       setLoading(false);
     }
   };
 
-  useEffect(() => { if (open) { setConfirm(''); setError(''); } }, [open]);
+  useEffect(() => {
+    if (open) { setConfirm(''); setCurrentPassword(''); setError(''); }
+  }, [open]);
 
   return (
     <Modal open={open} onClose={onClose} title="Delete Account" width={420}>
@@ -49,27 +70,42 @@ export function DeleteAccountModal({ open, onClose }: { open: boolean; onClose: 
         <div style={{ width: 56, height: 56, borderRadius: '50%', background: C.redLight, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
           <AlertCircle size={24} color={C.red} />
         </div>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'DM Sans', sans-serif" }}>This is permanent</h3>
-        <p style={{ fontSize: 13, color: C.gray, margin: 0, lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'Satoshi', sans-serif" }}>This is permanent</h3>
+        <p style={{ fontSize: 13, color: C.gray, margin: 0, lineHeight: 1.6, fontFamily: "'Satoshi', sans-serif" }}>
           All your data — proposals, contracts, wallet history, and profile — will be permanently deleted. This cannot be undone.
         </p>
       </div>
+
+      <label style={{ ...s.label, display: 'block', marginBottom: 5 }}>Current Password</label>
+      <input
+        type="password"
+        value={currentPassword}
+        onChange={e => setCurrentPassword(e.target.value)}
+        placeholder="Required to confirm identity"
+        style={{ ...s.input, marginBottom: 14 }}
+      />
+
       <label style={{ ...s.label, display: 'block', marginBottom: 6 }}>Type DELETE to confirm</label>
       <input
-        value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="DELETE"
+        value={confirm}
+        onChange={e => setConfirm(e.target.value)}
+        placeholder="DELETE"
         style={{ ...s.input, marginBottom: 16, borderColor: confirm && confirm !== 'DELETE' ? C.red : `${C.rodeo}50` }}
       />
+
       {error && (
         <div style={{ background: C.redLight, border: `1px solid ${C.red}30`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
           <AlertCircle size={14} color={C.red} />
-          <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{error}</p>
+          <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>{error}</p>
         </div>
       )}
+
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ ...s.btn, ...s.btnSecondary }}>Cancel</button>
         <button
-          onClick={handleDelete} disabled={loading || confirm !== 'DELETE'}
-          style={{ ...s.btn, background: C.red, color: '#fff', opacity: loading || confirm !== 'DELETE' ? 0.5 : 1 }}
+          onClick={handleDelete}
+          disabled={loading || confirm !== 'DELETE' || !currentPassword}
+          style={{ ...s.btn, background: C.red, color: '#fff', opacity: loading || confirm !== 'DELETE' || !currentPassword ? 0.5 : 1 }}
         >
           {loading
             ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Deleting…</>
@@ -82,10 +118,13 @@ export function DeleteAccountModal({ open, onClose }: { open: boolean; onClose: 
 
 // ─── New Proposal Modal ───────────────────────────────────────────────────────
 export function NewProposalModal({
-  open, onClose, userProfile,
-}: { open: boolean; onClose: () => void; userProfile: UserProfile | null }) {
+  open, onClose, userProfile, onProposalCreated,
+}: { open: boolean; onClose: () => void; userProfile: UserProfile | null; onProposalCreated?: (p: any) => void }) {
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState({ projectTitle: '', clientName: '', budget: '', timeline: '', coverLetter: '', rate: '', startDate: '', skillsUsed: [] as string[] });
+  const [form, setForm] = useState({
+    projectTitle: '', clientName: '', budget: '', timeline: '',
+    coverLetter: '', rate: '', startDate: '', skillsUsed: [] as string[],
+  });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
@@ -99,7 +138,26 @@ export function NewProposalModal({
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Not authenticated');
-      await addDoc(collection(db, 'proposals'), { ...form, userId: user.uid, status: 'applied', createdAt: serverTimestamp() });
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      const docRef = await addDoc(collection(db, 'proposals'), {
+        ...form,
+        userId: user.uid,
+        status: 'applied',
+        createdAt: serverTimestamp(),
+      });
+
+      const newProposal = {
+        id: docRef.id,
+        projectName: form.projectTitle,
+        client: form.clientName,
+        budget: form.budget,
+        timeline: form.timeline,
+        date: dateStr,
+        status: 'applied',
+      };
+      onProposalCreated?.(newProposal);
       setSubmitted(true);
     } catch (e: any) {
       setError(e.message ?? 'Failed to submit proposal.');
@@ -122,8 +180,8 @@ export function NewProposalModal({
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <CheckCircle size={28} color={C.green} />
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'DM Sans', sans-serif" }}>Proposal Submitted!</h3>
-          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', fontFamily: "'DM Sans', sans-serif" }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'Satoshi', sans-serif" }}>Proposal Submitted!</h3>
+          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', fontFamily: "'Satoshi', sans-serif" }}>
             Your proposal for "{form.projectTitle}" has been sent to {form.clientName}.
           </p>
           <button onClick={handleClose} style={{ ...s.btn, ...s.btnPrimary }}>Back to Proposals</button>
@@ -134,7 +192,7 @@ export function NewProposalModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
             {[1, 2, 3].map(n => (
               <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: n < totalSteps ? 1 : undefined }}>
-                <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", background: step >= n ? C.green : `${C.rodeo}25`, color: step >= n ? '#fff' : C.gray, transition: 'all 0.2s', flexShrink: 0 }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, fontFamily: "'Satoshi', sans-serif", background: step >= n ? C.green : `${C.rodeo}25`, color: step >= n ? '#fff' : C.gray, transition: 'all 0.2s', flexShrink: 0 }}>
                   {step > n ? <Check size={13} /> : n}
                 </div>
                 {n < totalSteps && <div style={{ height: 2, flex: 1, borderRadius: 99, background: step > n ? C.green : `${C.rodeo}25`, transition: 'background 0.3s' }} />}
@@ -143,56 +201,64 @@ export function NewProposalModal({
           </div>
 
           <AnimatePresence mode="wait">
-            {step === 1 && (
-              <motion.div key="s1" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}>
-                <label style={labelStyle}>Project Title *</label>
-                <input style={inputStyle} placeholder="e.g. Next.js SaaS Dashboard" value={form.projectTitle} onChange={e => set('projectTitle', e.target.value)} />
-                <label style={labelStyle}>Client / Company Name *</label>
-                <input style={inputStyle} placeholder="e.g. TechLaunch Inc." value={form.clientName} onChange={e => set('clientName', e.target.value)} />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div><label style={labelStyle}>Your Rate</label><input style={s.input} placeholder="e.g. $120/hr" value={form.rate} onChange={e => set('rate', e.target.value)} /></div>
-                  <div><label style={labelStyle}>Proposed Start Date</label><input type="date" style={s.input} value={form.startDate} onChange={e => set('startDate', e.target.value)} /></div>
+            <motion.div
+              key={`step-${step}`}
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.18 }}
+            >
+              {step === 1 && (
+                <div>
+                  <label style={labelStyle}>Project Title *</label>
+                  <input style={inputStyle} placeholder="e.g. Next.js SaaS Dashboard" value={form.projectTitle} onChange={e => set('projectTitle', e.target.value)} />
+                  <label style={labelStyle}>Client / Company Name *</label>
+                  <input style={inputStyle} placeholder="e.g. TechLaunch Inc." value={form.clientName} onChange={e => set('clientName', e.target.value)} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div><label style={labelStyle}>Your Rate</label><input style={s.input} placeholder="e.g. $120/hr" value={form.rate} onChange={e => set('rate', e.target.value)} /></div>
+                    <div><label style={labelStyle}>Proposed Start Date</label><input type="date" style={s.input} value={form.startDate} onChange={e => set('startDate', e.target.value)} /></div>
+                  </div>
                 </div>
-              </motion.div>
-            )}
-            {step === 2 && (
-              <motion.div key="s2" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <div><label style={labelStyle}>Budget Range *</label><input style={s.input} placeholder="e.g. $3,000–$5,000" value={form.budget} onChange={e => set('budget', e.target.value)} /></div>
-                  <div><label style={labelStyle}>Timeline *</label><input style={s.input} placeholder="e.g. 6–8 weeks" value={form.timeline} onChange={e => set('timeline', e.target.value)} /></div>
+              )}
+              {step === 2 && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                    <div><label style={labelStyle}>Budget Range *</label><input style={s.input} placeholder="e.g. $3,000–$5,000" value={form.budget} onChange={e => set('budget', e.target.value)} /></div>
+                    <div><label style={labelStyle}>Timeline *</label><input style={s.input} placeholder="e.g. 6–8 weeks" value={form.timeline} onChange={e => set('timeline', e.target.value)} /></div>
+                  </div>
+                  <label style={labelStyle}>Skills You'll Use</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                    {skillOptions.map(sk => {
+                      const selected = form.skillsUsed.includes(sk);
+                      return (
+                        <button key={sk}
+                          onClick={() => setForm(p => ({ ...p, skillsUsed: selected ? p.skillsUsed.filter(s => s !== sk) : [...p.skillsUsed, sk] }))}
+                          style={{ ...s.btn, padding: '5px 12px', fontSize: 11, ...(selected ? s.btnPrimary : { background: '#fff', color: C.coffee, border: `1px solid ${C.rodeo}50` }) }}>
+                          {sk}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <label style={labelStyle}>Skills You'll Use</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                  {skillOptions.map(sk => {
-                    const selected = form.skillsUsed.includes(sk);
-                    return (
-                      <button key={sk}
-                        onClick={() => setForm(p => ({ ...p, skillsUsed: selected ? p.skillsUsed.filter(s => s !== sk) : [...p.skillsUsed, sk] }))}
-                        style={{ ...s.btn, padding: '5px 12px', fontSize: 11, ...(selected ? s.btnPrimary : { background: '#fff', color: C.coffee, border: `1px solid ${C.rodeo}50` }) }}>
-                        {sk}
-                      </button>
-                    );
-                  })}
+              )}
+              {step === 3 && (
+                <div>
+                  <label style={labelStyle}>Cover Letter *</label>
+                  <textarea value={form.coverLetter} onChange={e => set('coverLetter', e.target.value)}
+                    placeholder="Introduce yourself, highlight relevant experience, and explain why you're the right fit..."
+                    style={{ ...s.input, height: 180, resize: 'vertical', lineHeight: 1.6 }} />
+                  <div style={{ background: C.goldLight, border: `1px solid ${C.gold}40`, borderRadius: 8, padding: '10px 14px', marginTop: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <Sparkles size={14} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <p style={{ fontSize: 12, color: C.coffee, margin: 0, lineHeight: 1.5, fontFamily: "'Satoshi', sans-serif" }}>
+                      <strong>AI tip:</strong> Mention the client's industry, reference similar past work, and be specific about your approach.
+                    </p>
+                  </div>
                 </div>
-              </motion.div>
-            )}
-            {step === 3 && (
-              <motion.div key="s3" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}>
-                <label style={labelStyle}>Cover Letter *</label>
-                <textarea value={form.coverLetter} onChange={e => set('coverLetter', e.target.value)}
-                  placeholder="Introduce yourself, highlight relevant experience, and explain why you're the right fit..."
-                  style={{ ...s.input, height: 180, resize: 'vertical', lineHeight: 1.6 }} />
-                <div style={{ background: C.goldLight, border: `1px solid ${C.gold}40`, borderRadius: 8, padding: '10px 14px', marginTop: 8, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <Sparkles size={14} color={C.gold} style={{ flexShrink: 0, marginTop: 2 }} />
-                  <p style={{ fontSize: 12, color: C.coffee, margin: 0, lineHeight: 1.5, fontFamily: "'DM Sans', sans-serif" }}>
-                    <strong>AI tip:</strong> Mention the client's industry, reference similar past work, and be specific about your approach.
-                  </p>
-                </div>
-              </motion.div>
-            )}
+              )}
+            </motion.div>
           </AnimatePresence>
 
-          {error && <p style={{ fontSize: 12, color: C.red, margin: '12px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{error}</p>}
+          {error && <p style={{ fontSize: 12, color: C.red, margin: '12px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{error}</p>}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.rodeo}25` }}>
             <button onClick={() => step > 1 ? setStep(step - 1) : handleClose()} style={{ ...s.btn, ...s.btnSecondary }}>
@@ -230,11 +296,62 @@ export function GenerateProposalModal({
   const handleGenerate = async () => {
     if (!project || !userProfile) return;
     setGenerating(true);
-    await new Promise(r => setTimeout(r, 1400));
-    setGenerated(
-      `Dear ${project.clientName} Team,\n\nI'm excited to apply for the "${project.title}" project. With ${userProfile.yearsExp || '5+'} years of experience in ${project.skills.slice(0, 2).join(' and ')}, I've built similar systems for multiple clients and am confident I can deliver exactly what you need.\n\nMy approach would be to start with a thorough discovery phase to align on requirements, then move into a structured development cycle with weekly demos. I've previously delivered ${project.skills[0] ?? 'similar'} projects on-time and within budget.\n\nI'm available to start immediately and can commit full-time to this project. My proposed timeline aligns with your ${project.timeline} expectation.\n\nI'd love to jump on a quick call to discuss the details further.\n\nBest regards,\n${userProfile.fullName}`
-    );
-    setGenerating(false);
+    setError('');
+    try {
+      const prompt = `You are an expert freelance proposal writer. Write a compelling, professional cover letter proposal for the following job.
+
+Freelancer profile:
+- Name: ${userProfile.fullName}
+- Role: ${userProfile.primaryRole || 'Freelancer'}
+- Years of experience: ${userProfile.yearsExp || '5+'}
+- Skills: ${(userProfile.skills || []).join(', ')}
+- Bio: ${userProfile.bio || 'Experienced freelancer with a proven track record.'}
+
+Project details:
+- Title: ${project.title}
+- Client: ${project.clientName}
+- Budget: ${project.budget}
+- Timeline: ${project.timeline}
+- Required skills: ${project.skills.join(', ')}
+- Description: ${project.description}
+${customNote ? `\nAdditional context from freelancer: ${customNote}` : ''}
+
+Write a 3–4 paragraph proposal cover letter that:
+1. Opens with a compelling hook specific to this project (not just "I'm excited")
+2. Demonstrates concrete understanding of the project requirements
+3. Highlights 1–2 specific, relevant past achievements using the freelancer's skills
+4. Proposes a clear, confident approach and timeline
+5. Ends with a strong call-to-action
+
+Write in first person, professional but warm tone. Address the client by their company name. Sign off with the freelancer's full name. Output only the letter text, no extra commentary.`;
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.error?.message ?? `API error ${response.status}`);
+      }
+
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content ?? '';
+      if (!text) throw new Error('No response from AI');
+      setGenerated(text);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to generate proposal. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   useEffect(() => {
@@ -247,11 +364,19 @@ export function GenerateProposalModal({
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Not authenticated');
+
       await addDoc(collection(db, 'proposals'), {
-        projectName: project.title, clientName: project.clientName,
-        budget: project.budget, timeline: project.timeline,
-        coverLetter: generated, skillsUsed: project.skills,
-        userId: user.uid, status: 'applied', createdAt: serverTimestamp(),
+        projectId: project.id,
+        projectTitle: project.title,
+        clientName: project.clientName,
+        budget: project.budget,
+        timeline: project.timeline,
+        coverLetter: generated,
+        skillsUsed: project.skills,
+        userId: user.uid,
+        status: 'applied',
+        aiGenerated: true,
+        createdAt: serverTimestamp(),
       });
       setSubmitted(true);
     } catch (e: any) {
@@ -268,18 +393,18 @@ export function GenerateProposalModal({
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <CheckCircle size={28} color={C.green} />
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'DM Sans', sans-serif" }}>Proposal Sent!</h3>
-          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', fontFamily: "'DM Sans', sans-serif" }}>Your proposal was submitted to {project.clientName}.</p>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'Satoshi', sans-serif" }}>Proposal Sent!</h3>
+          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', fontFamily: "'Satoshi', sans-serif" }}>Your proposal was submitted to {project.clientName}.</p>
           <button onClick={onClose} style={{ ...s.btn, ...s.btnPrimary }}>Back to Discover</button>
         </motion.div>
       ) : (
         <>
           <div style={{ background: C.ivory, border: `1px solid ${C.rodeo}30`, borderRadius: 10, padding: '12px 14px', marginBottom: 18 }}>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div><p style={s.label}>Budget</p><p style={{ fontSize: 13, fontWeight: 700, color: C.green, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{project.budget}</p></div>
-              <div><p style={s.label}>Timeline</p><p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{project.timeline}</p></div>
-              <div><p style={s.label}>AI Match</p><p style={{ fontSize: 13, fontWeight: 700, color: C.copper, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{project.matchScore}%</p></div>
-              <div><p style={s.label}>Client</p><p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '2px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{project.clientName}</p></div>
+              <div><p style={s.label}>Budget</p><p style={{ fontSize: 13, fontWeight: 700, color: C.green, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{project.budget}</p></div>
+              <div><p style={s.label}>Timeline</p><p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{project.timeline}</p></div>
+              <div><p style={s.label}>AI Match</p><p style={{ fontSize: 13, fontWeight: 700, color: C.copper, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{project.matchScore}%</p></div>
+              <div><p style={s.label}>Client</p><p style={{ fontSize: 13, fontWeight: 700, color: C.coffee, margin: '2px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{project.clientName}</p></div>
             </div>
           </div>
 
@@ -288,8 +413,8 @@ export function GenerateProposalModal({
               <div style={{ width: 56, height: 56, borderRadius: '50%', background: C.goldLight, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <Sparkles size={24} color={C.gold} />
               </div>
-              <p style={{ fontSize: 14, color: C.coffee, margin: '0 0 6px', fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>AI-Powered Proposal</p>
-              <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>
+              <p style={{ fontSize: 14, color: C.coffee, margin: '0 0 6px', fontWeight: 600, fontFamily: "'Satoshi', sans-serif" }}>AI-Powered Proposal</p>
+              <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', lineHeight: 1.6, fontFamily: "'Satoshi', sans-serif" }}>
                 Generate a tailored cover letter using your profile, skills, and this project's requirements.
               </p>
               <div style={{ marginBottom: 20 }}>
@@ -309,9 +434,13 @@ export function GenerateProposalModal({
               <label style={{ ...s.label, display: 'block', marginBottom: 8 }}>Generated Cover Letter — edit before sending</label>
               <textarea value={generated} onChange={e => setGenerated(e.target.value)}
                 style={{ ...s.input, height: 260, resize: 'vertical', lineHeight: 1.65, fontSize: 12 }} />
-              {error && <p style={{ fontSize: 12, color: C.red, margin: '8px 0 0', fontFamily: "'DM Sans', sans-serif" }}>{error}</p>}
+              {error && <p style={{ fontSize: 12, color: C.red, margin: '8px 0 0', fontFamily: "'Satoshi', sans-serif" }}>{error}</p>}
               <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-                <button onClick={handleGenerate} style={{ ...s.btn, ...s.btnSecondary }}><RefreshCw size={13} /> Regenerate</button>
+                <button onClick={handleGenerate} disabled={generating} style={{ ...s.btn, ...s.btnSecondary }}>
+                  {generating
+                    ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Regenerating…</>
+                    : <><RefreshCw size={13} /> Regenerate</>}
+                </button>
                 <button onClick={handleSubmit} disabled={submitting} style={{ ...s.btn, ...s.btnPrimary }}>
                   {submitting ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Sending…</> : <><Send size={13} /> Send Proposal</>}
                 </button>
@@ -340,7 +469,7 @@ export function ViewContractModal({
     <Modal open={open} onClose={onClose} title="Contract Details" width={520}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 4px', fontFamily: "'DM Sans', sans-serif" }}>{contract.project}</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 4px', fontFamily: "'Satoshi', sans-serif" }}>{contract.project}</h3>
           <p style={{ ...s.label, margin: 0 }}>{contract.id}</p>
         </div>
         <span style={s.tag(cfg.color)}>{cfg.label}</span>
@@ -356,14 +485,14 @@ export function ViewContractModal({
         ].map(({ label, value }) => (
           <div key={label} style={{ background: C.ivory, borderRadius: 8, padding: '10px 14px' }}>
             <p style={{ ...s.label, margin: '0 0 3px' }}>{label}</p>
-            <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{value}</p>
+            <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>{value}</p>
           </div>
         ))}
       </div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
           <span style={s.label}>Completion</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: C.coffee, fontFamily: "'DM Sans', sans-serif" }}>{contract.progress}%</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.coffee, fontFamily: "'Satoshi', sans-serif" }}>{contract.progress}%</span>
         </div>
         <div style={{ height: 4, background: `${C.rodeo}25`, borderRadius: 99, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${contract.progress}%`, background: cfg.color, borderRadius: 99 }} />
@@ -371,8 +500,8 @@ export function ViewContractModal({
       </div>
       {contract.status === 'active' && (
         <div style={{ padding: '14px', background: C.greenLight, borderRadius: 10, border: `1px solid ${C.greenMid}` }}>
-          <p style={{ fontSize: 12, color: C.coffee, margin: '0 0 4px', fontWeight: 600, fontFamily: "'DM Sans', sans-serif" }}>Contract in progress</p>
-          <p style={{ fontSize: 11, color: C.gray, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>Next milestone due {contract.endDate}. Submit your deliverables before the deadline.</p>
+          <p style={{ fontSize: 12, color: C.coffee, margin: '0 0 4px', fontWeight: 600, fontFamily: "'Satoshi', sans-serif" }}>Contract in progress</p>
+          <p style={{ fontSize: 11, color: C.gray, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>Next milestone due {contract.endDate}. Submit your deliverables before the deadline.</p>
         </div>
       )}
     </Modal>
@@ -381,9 +510,19 @@ export function ViewContractModal({
 
 // ─── Submit Work Modal ────────────────────────────────────────────────────────
 export function SubmitWorkModal({
-  open, onClose, contract,
-}: { open: boolean; onClose: () => void; contract: Contract | null }) {
-  const [form, setForm] = useState({ milestone: '', deliverableLink: '', notes: '', requestPayment: false });
+  open, onClose, contract, onContractUpdated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  contract: Contract | null;
+  onContractUpdated?: (contractId: string, patch: Partial<Contract>) => void;
+}) {
+  const [form, setForm] = useState({
+    milestone: '',
+    deliverableLink: '',
+    notes: '',
+    requestPayment: false,
+  });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
@@ -394,12 +533,39 @@ export function SubmitWorkModal({
     try {
       const user = auth.currentUser;
       if (!user || !contract) throw new Error('Not authenticated');
+
+      // 1. Write the work submission record
       await addDoc(collection(db, 'workSubmissions'), {
-        contractId: contract.id, userId: user.uid,
-        milestone: form.milestone, deliverableLink: form.deliverableLink,
-        notes: form.notes, requestPayment: form.requestPayment,
-        submittedAt: serverTimestamp(), status: 'submitted',
+        contractId: contract.id,
+        userId: user.uid,
+        milestone: form.milestone,
+        deliverableLink: form.deliverableLink,
+        notes: form.notes,
+        requestPayment: form.requestPayment,
+        submittedAt: serverTimestamp(),
+        status: 'submitted',
       });
+
+      // 2. Update the contract's milestone/progress counters in Firestore.
+      const newCompleted = (contract.completedMilestones ?? 0) + 1;
+      const total = contract.milestones ?? 1;
+      const newProgress = Math.min(100, Math.round((newCompleted / total) * 100));
+      const isNowComplete = newCompleted >= total;
+
+      await updateDoc(doc(db, 'contracts', contract.id), {
+        completedMilestones: increment(1),
+        progress: newProgress,
+        updatedAt: serverTimestamp(),
+        ...(isNowComplete ? { status: 'completed', completedAt: serverTimestamp() } : {}),
+      });
+
+      // 3. Optimistic UI update — pass local (non-increment) values to parent
+      onContractUpdated?.(contract.id, {
+        completedMilestones: newCompleted,
+        progress: newProgress,
+        ...(isNowComplete ? { status: 'completed' } : {}),
+      });
+
       setSubmitted(true);
     } catch (e: any) {
       setError(e.message ?? 'Failed to submit work.');
@@ -407,10 +573,20 @@ export function SubmitWorkModal({
   };
 
   useEffect(() => {
-    if (open) { setForm({ milestone: '', deliverableLink: '', notes: '', requestPayment: false }); setSubmitted(false); setError(''); }
+    if (open) {
+      setForm({ milestone: '', deliverableLink: '', notes: '', requestPayment: false });
+      setSubmitted(false);
+      setError('');
+    }
   }, [open]);
 
   if (!contract) return null;
+
+  const milestoneOptions = Array.from({ length: contract.milestones ?? 3 }, (_, i) => ({
+    value: `m${i + 1}`,
+    label: `Milestone ${i + 1}`,
+    disabled: i < (contract.completedMilestones ?? 0),
+  }));
 
   return (
     <Modal open={open} onClose={onClose} title="Submit Work" width={500}>
@@ -419,8 +595,8 @@ export function SubmitWorkModal({
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <CheckCircle size={28} color={C.green} />
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'DM Sans', sans-serif" }}>Work Submitted!</h3>
-          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', fontFamily: "'DM Sans', sans-serif" }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'Satoshi', sans-serif" }}>Work Submitted!</h3>
+          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px', fontFamily: "'Satoshi', sans-serif" }}>
             {contract.client} has been notified.{form.requestPayment ? ' A payment release request has also been sent.' : ''}
           </p>
           <button onClick={onClose} style={{ ...s.btn, ...s.btnPrimary }}>Back to Contracts</button>
@@ -429,19 +605,33 @@ export function SubmitWorkModal({
         <>
           <div style={{ background: C.ivory, borderRadius: 8, padding: '12px 14px', marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '0 0 2px', fontFamily: "'DM Sans', sans-serif" }}>{contract.project}</p>
+              <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: '0 0 2px', fontFamily: "'Satoshi', sans-serif" }}>{contract.project}</p>
               <p style={{ ...s.label, margin: 0 }}>{contract.client}</p>
             </div>
-            <span style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: "'DM Sans', sans-serif" }}>{contract.value}</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: "'Satoshi', sans-serif" }}>{contract.value}</span>
+          </div>
+
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+              <span style={s.label}>Milestones completed</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.coffee, fontFamily: "'Satoshi', sans-serif" }}>
+                {contract.completedMilestones} / {contract.milestones}
+              </span>
+            </div>
+            <div style={{ height: 4, background: `${C.rodeo}25`, borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${contract.progress}%`, background: C.green, borderRadius: 99, transition: 'width 0.4s' }} />
+            </div>
           </div>
 
           <label style={{ ...s.label, display: 'block', marginBottom: 5 }}>Milestone *</label>
           <select value={form.milestone} onChange={e => set('milestone', e.target.value)}
             style={{ ...s.input, marginBottom: 14, cursor: 'pointer' }}>
             <option value="">Select milestone...</option>
-            <option value="m1">Milestone 1 — Initial Setup & Architecture</option>
-            <option value="m2">Milestone 2 — Core Features Development</option>
-            <option value="m3">Milestone 3 — Testing & Final Delivery</option>
+            {milestoneOptions.map(o => (
+              <option key={o.value} value={o.value} disabled={o.disabled}>
+                {o.label}{o.disabled ? ' (already submitted)' : ''}
+              </option>
+            ))}
           </select>
 
           <label style={{ ...s.label, display: 'block', marginBottom: 5 }}>Deliverable Link *</label>
@@ -459,15 +649,17 @@ export function SubmitWorkModal({
             <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${form.requestPayment ? C.green : C.rodeo}`, background: form.requestPayment ? C.green : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
               {form.requestPayment && <Check size={12} color="#fff" />}
             </div>
-            <p style={{ fontSize: 13, color: C.coffee, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>Also request milestone payment release</p>
+            <p style={{ fontSize: 13, color: C.coffee, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>Also request milestone payment release</p>
           </div>
 
-          {error && <p style={{ fontSize: 12, color: C.red, margin: '0 0 12px', fontFamily: "'DM Sans', sans-serif" }}>{error}</p>}
+          {error && <p style={{ fontSize: 12, color: C.red, margin: '0 0 12px', fontFamily: "'Satoshi', sans-serif" }}>{error}</p>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ ...s.btn, ...s.btnSecondary }}>Cancel</button>
             <button onClick={handleSubmit} disabled={submitting || !form.milestone || !form.deliverableLink}
               style={{ ...s.btn, ...s.btnPrimary, opacity: submitting || !form.milestone || !form.deliverableLink ? 0.6 : 1 }}>
-              {submitting ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Submitting…</> : <><Upload size={13} /> Submit Work</>}
+              {submitting
+                ? <><RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> Submitting…</>
+                : <><Upload size={13} /> Submit Work</>}
             </button>
           </div>
         </>
@@ -511,7 +703,11 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
       await updatePassword(user, form.newPass);
       setSuccess(true);
     } catch (e: any) {
-      setError(e.code === 'auth/wrong-password' ? 'Current password is incorrect.' : e.message ?? 'Failed to update password.');
+      const msg =
+        e.code === 'auth/wrong-password' ? 'Current password is incorrect.' :
+        e.code === 'auth/too-many-requests' ? 'Too many attempts. Try again later.' :
+        e.message ?? 'Failed to update password.';
+      setError(msg);
     } finally { setLoading(false); }
   };
 
@@ -532,8 +728,8 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: C.greenLight, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
             <Lock size={24} color={C.green} />
           </div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'DM Sans', sans-serif" }}>Password Updated</h3>
-          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 20px', fontFamily: "'DM Sans', sans-serif" }}>Your password has been changed successfully.</p>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: '0 0 8px', fontFamily: "'Satoshi', sans-serif" }}>Password Updated</h3>
+          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 20px', fontFamily: "'Satoshi', sans-serif" }}>Your password has been changed successfully.</p>
           <button onClick={onClose} style={{ ...s.btn, ...s.btnPrimary }}>Done</button>
         </motion.div>
       ) : (
@@ -558,7 +754,7 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
                 <div style={{ flex: 1, height: 3, borderRadius: 99, background: `${C.rodeo}25`, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${(str / 4) * 100}%`, background: strColor, borderRadius: 99, transition: 'all 0.3s' }} />
                 </div>
-                <span style={{ fontSize: 11, color: strColor, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", minWidth: 36 }}>{strLabel}</span>
+                <span style={{ fontSize: 11, color: strColor, fontWeight: 600, fontFamily: "'Satoshi', sans-serif", minWidth: 36 }}>{strLabel}</span>
               </div>
             )}
           </div>
@@ -568,13 +764,13 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
               placeholder="Repeat new password"
               style={{ ...s.input, borderColor: form.confirm && form.confirm !== form.newPass ? C.red : `${C.rodeo}50` }} />
             {form.confirm && form.confirm !== form.newPass && (
-              <p style={{ fontSize: 11, color: C.red, margin: '4px 0 0', fontFamily: "'DM Sans', sans-serif" }}>Passwords do not match</p>
+              <p style={{ fontSize: 11, color: C.red, margin: '4px 0 0', fontFamily: "'Satoshi', sans-serif" }}>Passwords do not match</p>
             )}
           </div>
           {error && (
             <div style={{ background: C.redLight, border: `1px solid ${C.red}30`, borderRadius: 8, padding: '10px 14px', marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
               <AlertCircle size={14} color={C.red} />
-              <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{error}</p>
+              <p style={{ fontSize: 12, color: C.red, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>{error}</p>
             </div>
           )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

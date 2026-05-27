@@ -8,8 +8,8 @@ import { C, s, Milestone } from './types-and-data';
 // ─── Logo ─────────────────────────────────────────────────────────────────────
 export const Logo = ({ collapsed = false }: { collapsed?: boolean }) => (
   <div style={{ display: 'flex', alignItems: 'baseline', gap: 0 }}>
-    <span style={{ fontSize: collapsed ? 18 : 22, fontWeight: 800, color: '#F7F3EE', letterSpacing: '-0.03em', fontFamily: "'DM Sans', sans-serif" }}>MG</span>
-    <span style={{ fontSize: collapsed ? 18 : 22, fontWeight: 800, color: '#D4AF37', letterSpacing: '-0.03em', fontFamily: "'DM Sans', sans-serif" }}>NOVA</span>
+    <span style={{ fontSize: collapsed ? 18 : 22, fontWeight: 800, color: '#F7F3EE', letterSpacing: '-0.03em', fontFamily: "'Satoshi', sans-serif" }}>MG</span>
+    <span style={{ fontSize: collapsed ? 18 : 22, fontWeight: 800, color: '#D4AF37', letterSpacing: '-0.03em', fontFamily: "'Satoshi', sans-serif" }}>NOVA</span>
   </div>
 );
 
@@ -21,7 +21,7 @@ export function Avatar({
     <div style={{
       width: size, height: size, borderRadius: '50%', background: bg, color,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.33, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
+      fontSize: size * 0.33, fontWeight: 700, fontFamily: "'Satoshi', sans-serif", flexShrink: 0,
     }}>
       {initials}
     </div>
@@ -105,7 +105,7 @@ export function Modal({
             style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: width, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(75,54,47,0.18)' }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: `1px solid ${C.rodeo}30` }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>{title}</h2>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: C.coffee, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>{title}</h2>
               <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.gray, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, padding: 4 }}>
                 <X size={18} />
               </button>
@@ -135,7 +135,7 @@ export function AnalyticsCard({ data, index }: { data: { label: string; value: s
         <span style={{ ...s.tag(data.positive ? C.green : C.copper), fontSize: 10 }}>{data.trend}</span>
       </div>
       <p style={{ ...s.label, marginBottom: 3 }}>{data.label}</p>
-      <p style={{ fontSize: 20, fontWeight: 700, color: C.coffee, fontFamily: "'DM Sans', sans-serif", margin: 0 }}>{data.value}</p>
+      <p style={{ fontSize: 20, fontWeight: 700, color: C.coffee, fontFamily: "'Satoshi', sans-serif", margin: 0 }}>{data.value}</p>
     </motion.div>
   );
 }
@@ -156,14 +156,14 @@ export function MilestoneCard({ m, index }: { m: Milestone; index: number }) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: 0, fontFamily: "'DM Sans', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.title}</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: C.coffee, margin: 0, fontFamily: "'Satoshi', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.title}</p>
           <p style={{ ...s.label, margin: '3px 0 0' }}>{m.project}</p>
         </div>
         <Badge color={cfg.color}><cfg.Icon size={10} /> {cfg.label}</Badge>
       </div>
       <Divider />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-        <span style={{ fontSize: 18, fontWeight: 700, color: C.green, fontFamily: "'DM Sans', sans-serif" }}>{m.amount}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: C.green, fontFamily: "'Satoshi', sans-serif" }}>{m.amount}</span>
         <span style={s.label}>Due {m.dueDate}</span>
       </div>
     </motion.div>

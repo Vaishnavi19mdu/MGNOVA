@@ -72,7 +72,7 @@ const labelStyle: React.CSSProperties = {
   color: C.gray,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  fontFamily: "'DM Sans', sans-serif",
+  fontFamily: "'Satoshi', sans-serif",
   fontWeight: 500,
 };
 
@@ -87,7 +87,7 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer',
   border: 'none',
   transition: 'all 0.18s ease',
-  fontFamily: "'DM Sans', sans-serif",
+  fontFamily: "'Satoshi', sans-serif",
 };
 
 // ─── Nav items ────────────────────────────────────────────────────────────────
@@ -112,14 +112,14 @@ function Logo({ collapsed }: { collapsed: boolean }) {
         fontWeight: 800,
         color: C.ivory,
         letterSpacing: '-0.03em',
-        fontFamily: "'DM Sans', sans-serif",
+        fontFamily: "'Satoshi', sans-serif",
       }}>MG</span>
       <span style={{
         fontSize: collapsed ? 18 : 22,
         fontWeight: 800,
         color: C.gold,
         letterSpacing: '-0.03em',
-        fontFamily: "'DM Sans', sans-serif",
+        fontFamily: "'Satoshi', sans-serif",
       }}>NOVA</span>
     </div>
   );
@@ -177,7 +177,7 @@ function NavList({
                 fontSize: 13,
                 fontWeight: isActive ? 600 : 400,
                 whiteSpace: 'nowrap',
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "'Satoshi', sans-serif",
                 color: isActive ? C.ivory : C.sidebarText,
               }}>
                 {label}
@@ -208,7 +208,7 @@ function UpgradeBanner({ collapsed }: { collapsed: boolean }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
         <Sparkles size={12} color={C.gold} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.gold, fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: C.gold, fontFamily: "'Satoshi', sans-serif" }}>
           Go Premium
         </span>
       </div>
@@ -217,7 +217,7 @@ function UpgradeBanner({ collapsed }: { collapsed: boolean }) {
         color: C.sidebarMuted,
         margin: '0 0 8px',
         lineHeight: 1.5,
-        fontFamily: "'DM Sans', sans-serif",
+        fontFamily: "'Satoshi', sans-serif",
       }}>
         Unlock AI proposals &amp; priority matching
       </p>
@@ -232,7 +232,7 @@ function UpgradeBanner({ collapsed }: { collapsed: boolean }) {
           fontSize: 11,
           fontWeight: 700,
           cursor: 'pointer',
-          fontFamily: "'DM Sans', sans-serif",
+          fontFamily: "'Satoshi', sans-serif",
         }}
       >
         Upgrade Now
@@ -278,7 +278,7 @@ function UserFooter({
           fontSize: 11,
           fontWeight: 800,
           flexShrink: 0,
-          fontFamily: "'DM Sans', sans-serif",
+          fontFamily: "'Satoshi', sans-serif",
         }}>
           {userInitials}
         </div>
@@ -288,19 +288,21 @@ function UserFooter({
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{
               fontSize: 12,
-              fontWeight: 600,
+              fontWeight: 700,
               color: C.sidebarText,
               margin: 0,
-              fontFamily: "'DM Sans', sans-serif",
+              fontFamily: "'Satoshi', sans-serif",
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}>
               {userName}
             </p>
-            <p style={{ fontSize: 10, color: C.sidebarMuted, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
-              {userRole}
-            </p>
+            {userRole ? (
+              <p style={{ fontSize: 10, color: C.gold, fontWeight: 600, margin: '1px 0 0', fontFamily: "'Satoshi', sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {userRole}
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -515,15 +517,15 @@ export function ClientMobileDrawer({
                 fontSize: 13,
                 fontWeight: 800,
                 flexShrink: 0,
-                fontFamily: "'DM Sans', sans-serif",
+                fontFamily: "'Satoshi', sans-serif",
               }}>
                 {userInitials}
               </div>
               <div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: C.sidebarText, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: C.sidebarText, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>
                   {userName}
                 </p>
-                <p style={{ fontSize: 11, color: C.sidebarMuted, margin: 0, fontFamily: "'DM Sans', sans-serif" }}>
+                <p style={{ fontSize: 11, color: C.sidebarMuted, margin: 0, fontFamily: "'Satoshi', sans-serif" }}>
                   {userEmail}
                 </p>
               </div>
@@ -549,7 +551,7 @@ export function ClientMobileDrawer({
                   cursor: 'pointer',
                   color: C.rodeo,
                   fontSize: 13,
-                  fontFamily: "'DM Sans', sans-serif",
+                  fontFamily: "'Satoshi', sans-serif",
                   padding: '8px 0',
                   width: '100%',
                 }}
