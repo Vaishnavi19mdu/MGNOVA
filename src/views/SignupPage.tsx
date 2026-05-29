@@ -33,22 +33,50 @@ const BUDGETS = ['< $5k','$5k–$25k','$25k–$100k','$100k+'];
 const WORKFLOWS = ['Milestone-Based','Agile Collaboration','Long-Term Retainers','Enterprise Scaling'];
 const CONTRACT_DURATIONS = ['Under 1 month','1–3 months','3–6 months','6+ months'];
 
-const PARSE_STATES = [
-  'Scanning resume…','Extracting skills…','Mapping experience…',
-  'Building professional profile…','Generating expertise summary…',
+// ── OCR / Parse steps ──
+const TALENT_PARSE_STATES = [
+  'Uploading document…',
+  'Running OCR scan…',
+  'Extracting text content…',
+  'Parsing professional data…',
+  'Building profile summary…',
 ];
 
 const ACCEPTED_MIME = [
-  'application/pdf','application/msword',
+  'application/pdf',
+  'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'image/jpeg','image/png','image/gif','image/webp',
 ];
 const ACCEPTED_EXT = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp';
 
-const calcAge = (dob: string) => {
+// ── Age helpers ──
+// Returns age in years, or null if dob is empty/invalid
+const calcAge = (dob: string): number | null => {
   if (!dob) return null;
-  return Math.floor((Date.now() - new Date(dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+  const ms = Date.now() - new Date(dob).getTime();
+  if (ms < 0) return null;
+  return Math.floor(ms / (1000 * 60 * 60 * 24 * 365.25));
 };
+
+// Returns the latest allowed DOB as a yyyy-mm-dd string for a given minimum age
+const maxDobForAge = (minAge: number): string => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - minAge);
+  return d.toISOString().split('T')[0];
+};
+
+// Returns an error string if age is invalid for the given role, else ''
+const ageError = (dob: string, role: Role | null): string => {
+  const age = calcAge(dob);
+  if (!dob) return '';
+  if (age === null) return 'Invalid date of birth.';
+  if (role === 'talent' && age < 16) return 'Talent members must be at least 16 years old.';
+  if (role === 'visionary' && age < 18) return 'Visionary accounts require you to be at least 18 years old.';
+  return '';
+};
+
+// ── File utilities ──
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((res, rej) => {
     const r = new FileReader();
@@ -56,14 +84,103 @@ const fileToBase64 = (file: File): Promise<string> =>
     r.onerror = () => rej(new Error('Read failed'));
     r.readAsDataURL(file);
   });
+
 const isImageFile = (f: File) => f.type.startsWith('image/');
-const getFileIcon = (f: File) => f.type === 'application/pdf' ? '📄' : f.type.includes('word') || f.name.endsWith('.doc') || f.name.endsWith('.docx') ? '📝' : '🖼️';
+const isPdfFile  = (f: File) => f.type === 'application/pdf';
+const isDocxFile = (f: File) =>
+  f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+  f.name.endsWith('.docx') || f.name.endsWith('.doc');
+
+const getFileIcon = (f: File) =>
+  isPdfFile(f) ? '📄' : isDocxFile(f) ? '📝' : '🖼️';
+
 const getFileTypeLabel = (f: File) => {
-  if (f.type === 'application/pdf') return 'PDF';
+  if (isPdfFile(f)) return 'PDF';
   if (f.type === 'application/msword') return 'DOC';
-  if (f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'DOCX';
+  if (f.type.includes('wordprocessingml')) return 'DOCX';
   if (f.type.startsWith('image/')) return f.type.split('/')[1].toUpperCase();
   return 'File';
+};
+
+// ── Tesseract OCR loader ──
+// Loads Tesseract.js from CDN and runs OCR on an image File.
+// Returns the raw recognized text.
+const runTesseractOCR = async (file: File): Promise<string> => {
+  // Dynamically load Tesseract if not already present
+  if (!(window as any).Tesseract) {
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Tesseract.js'));
+      document.head.appendChild(script);
+    });
+  }
+
+  const Tesseract = (window as any).Tesseract;
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const { data: { text } } = await Tesseract.recognize(imageUrl, 'eng', {
+      logger: () => {}, // suppress progress logs
+    });
+    return text;
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+};
+
+// ── Claude API resume parser ──
+// Sends extracted text (or raw file for PDFs/DOCX) to Claude to return structured JSON.
+const parseResumeWithClaude = async (
+  rawText: string | null,
+  file: File | null,
+): Promise<any> => {
+  const prompt = `You are an expert resume parser. Analyze the resume and extract structured information.
+Return ONLY a valid JSON object with exactly these fields (use null for missing fields, arrays for list fields):
+{"fullName":"","email":"","phone":"","location":"","title":"","yearsExp":"","skills":[],"education":"","languages":[],"summary":""}
+Return only the JSON — no markdown fences, no preamble, no explanation.`;
+
+  let content: any[];
+
+  if (rawText) {
+    // OCR already extracted text — just send the text
+    content = [{ type: 'text', text: `${prompt}\n\nResume text:\n${rawText}` }];
+  } else if (file && isPdfFile(file)) {
+    const base64 = await fileToBase64(file);
+    content = [
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+      { type: 'text', text: prompt },
+    ];
+  } else if (file && isDocxFile(file)) {
+    const base64 = await fileToBase64(file);
+    content = [
+      {
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          data: base64,
+        },
+      },
+      { type: 'text', text: prompt },
+    ];
+  } else {
+    throw new Error('No content to parse');
+  }
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content }],
+    }),
+  });
+
+  const data = await res.json();
+  const text = (data.content ?? []).map((c: any) => c.text || '').join('');
+  return JSON.parse(text.replace(/```json|```/g, '').trim());
 };
 
 // ── UI Primitives ──
@@ -83,18 +200,37 @@ const inputStyle: React.CSSProperties = {
   outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
 };
 
-const TextInput = ({ value, onChange, placeholder, type = 'text' }: { value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) => (
-  <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={inputStyle} />
+const TextInput = ({
+  value, onChange, placeholder, type = 'text', max,
+}: {
+  value: string; onChange: (v: string) => void; placeholder?: string; type?: string; max?: string;
+}) => (
+  <input
+    type={type}
+    value={value}
+    onChange={e => onChange(e.target.value)}
+    placeholder={placeholder}
+    max={max}
+    style={inputStyle}
+  />
 );
 
-const SelectInput = ({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[] }) => (
+const SelectInput = ({
+  value, onChange, options,
+}: {
+  value: string; onChange: (v: string) => void; options: string[];
+}) => (
   <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inputStyle }}>
     <option value="">Select…</option>
     {options.map(o => <option key={o}>{o}</option>)}
   </select>
 );
 
-const Chips = ({ options, value, onSelect, multi = false }: { options: string[]; value: string | string[]; onSelect: (v: string) => void; multi?: boolean }) => (
+const Chips = ({
+  options, value, onSelect, multi = false,
+}: {
+  options: string[]; value: string | string[]; onSelect: (v: string) => void; multi?: boolean;
+}) => (
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
     {options.map(o => {
       const active = multi ? (value as string[]).includes(o) : value === o;
@@ -113,7 +249,11 @@ const Chips = ({ options, value, onSelect, multi = false }: { options: string[];
   </div>
 );
 
-const Btn = ({ onClick, children, secondary = false, disabled = false }: { onClick: () => void; children: React.ReactNode; secondary?: boolean; disabled?: boolean }) => (
+const Btn = ({
+  onClick, children, secondary = false, disabled = false,
+}: {
+  onClick: () => void; children: React.ReactNode; secondary?: boolean; disabled?: boolean;
+}) => (
   <button type="button" onClick={onClick} disabled={disabled} style={{
     padding: secondary ? '10px 20px' : '14px',
     width: secondary ? 'auto' : '100%',
@@ -140,7 +280,11 @@ const ProgressBar = ({ step, totalSteps }: { step: number; totalSteps: number })
   </div>
 );
 
-const ExtractedRow = ({ label, value, used, onToggle }: { label: string; value: string | string[] | null; used: boolean; onToggle: () => void }) => {
+const ExtractedRow = ({
+  label, value, used, onToggle,
+}: {
+  label: string; value: string | string[] | null; used: boolean; onToggle: () => void;
+}) => {
   if (!value || (Array.isArray(value) && value.length === 0)) return null;
   const display = Array.isArray(value) ? value.join(', ') : value;
   return (
@@ -158,13 +302,38 @@ const ExtractedRow = ({ label, value, used, onToggle }: { label: string; value: 
         fontFamily: 'inherit', fontWeight: 500,
         display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.15s',
       }}>
-        {used ? <><CheckCircle2 size={10} /> Use</> : <><X size={10} /> Don't use</>}
+        {used ? <><CheckCircle2 size={10} /> Use</> : <><X size={10} /> Skip</>}
       </button>
     </div>
   );
 };
 
-// ── Main ──
+// ── Age validation banner ──
+const AgeBanner = ({ dob, role }: { dob: string; role: Role | null }) => {
+  const err = ageError(dob, role);
+  const age = calcAge(dob);
+  if (!dob) return null;
+  if (err) {
+    return (
+      <p style={{ fontSize: 12, color: C.copper, marginTop: -8, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <X size={12} /> {err}
+      </p>
+    );
+  }
+  if (age !== null) {
+    return (
+      <p style={{ fontSize: 12, color: C.softGray, marginTop: -8, marginBottom: '1.25rem' }}>
+        Age: <strong style={{ color: C.text }}>{age} years</strong>
+        {role === 'talent' && age < 18 && (
+          <span style={{ marginLeft: 6, fontSize: 11, color: C.green }}>✓ Eligible (16+ for talent)</span>
+        )}
+      </p>
+    );
+  }
+  return null;
+};
+
+// ── Main Component ──
 export default function SignupPage() {
   const [role, setRole] = useState<Role | null>(null);
   const [step, setStep] = useState(0);
@@ -175,6 +344,7 @@ export default function SignupPage() {
   const [resumePreview, setResumePreview] = useState<string>('');
   const [parsedResume, setParsedResume] = useState<any>(null);
   const [fileTypeError, setFileTypeError] = useState('');
+  const [ocrStatus, setOcrStatus] = useState(''); // live OCR progress label
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -196,10 +366,17 @@ export default function SignupPage() {
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const toggleArr = (k: string, v: string) =>
-    setForm(f => ({ ...f, [k]: (f as any)[k].includes(v) ? (f as any)[k].filter((x: string) => x !== v) : [...(f as any)[k], v] }));
+    setForm(f => ({
+      ...f,
+      [k]: (f as any)[k].includes(v)
+        ? (f as any)[k].filter((x: string) => x !== v)
+        : [...(f as any)[k], v],
+    }));
 
-  const age = calcAge(form.dob);
   const totalSteps = 5;
+
+  // Check if the DOB step can proceed
+  const dobOk = (dob: string) => ageError(dob, role) === '' && calcAge(dob) !== null;
 
   const applyExtractedData = () => {
     if (!parsedResume) return;
@@ -211,81 +388,137 @@ export default function SignupPage() {
     setForm(f => ({ ...f, ...updates }));
   };
 
+  // ── Main resume handler ──
   const handleResumeParse = async (file: File) => {
     setFileTypeError('');
-    const valid = ACCEPTED_MIME.includes(file.type) || file.name.endsWith('.doc') || file.name.endsWith('.docx');
-    if (!valid) { setFileTypeError('Please upload a PDF, Word document (.doc/.docx), or image file.'); return; }
+    const valid =
+      ACCEPTED_MIME.includes(file.type) ||
+      file.name.endsWith('.doc') ||
+      file.name.endsWith('.docx');
+    if (!valid) {
+      setFileTypeError('Please upload a PDF, Word document (.doc/.docx), or image file.');
+      return;
+    }
 
-    setParsing(true); setParseStep(0); setResumeFile(file); setParsedResume(null);
+    setParsing(true);
+    setParseStep(0);
+    setResumeFile(file);
+    setParsedResume(null);
+    setOcrStatus('');
     setUsedFields({ fullName: true, email: true, location: true, yearsExp: true, languages: true, title: true, skills: true, education: true, summary: true });
-    if (isImageFile(file)) setResumePreview(URL.createObjectURL(file)); else setResumePreview('');
+    if (isImageFile(file)) setResumePreview(URL.createObjectURL(file));
+    else setResumePreview('');
 
     try {
-      const base64 = await fileToBase64(file);
-      setParseStep(1);
+      setParseStep(1); // Uploading
 
-      const prompt = `You are an expert resume parser. Analyze this resume and extract structured information.
-Return ONLY a valid JSON object with exactly these fields (use null for missing, arrays for lists):
-{"fullName":"","email":"","phone":"","location":"","title":"","yearsExp":"","skills":[],"education":"","languages":[],"summary":""}
-Return only the JSON, no markdown, no preamble.`;
+      let rawText: string | null = null;
 
-      let content: any[];
       if (isImageFile(file)) {
-        content = [{ type: 'image', source: { type: 'base64', media_type: file.type as any, data: base64 } }, { type: 'text', text: prompt }];
+        // ── Real Tesseract.js OCR for image files ──
+        setParseStep(2); // Running OCR
+        setOcrStatus('Loading OCR engine…');
+        rawText = await runTesseractOCR(file);
+        setOcrStatus('OCR complete');
+        setParseStep(3); // Extracting text
       } else {
-        const mt = file.type === 'application/pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        content = [{ type: 'document', source: { type: 'base64', media_type: mt, data: base64 } }, { type: 'text', text: prompt }];
+        // PDFs and DOCX go straight to Claude's native document parsing (no OCR needed)
+        setParseStep(2);
+        setParseStep(3);
       }
 
-      setParseStep(2);
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content }] }),
-      });
-      setParseStep(3);
-      const data = await res.json();
-      const text = data.content?.map((c: any) => c.text || '').join('') || '';
-      const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+      setParseStep(3); // Parsing professional data
+      const parsed = await parseResumeWithClaude(rawText, isImageFile(file) ? null : file);
       setParsedResume(parsed);
 
+      // Auto-fill obvious fields
       if (parsed.fullName) set('fullName', parsed.fullName);
       if (parsed.yearsExp) set('yearsExp', parsed.yearsExp);
       if (parsed.languages?.length) set('languages', parsed.languages.join(', '));
       if (parsed.location) set('country', parsed.location);
 
-      setParseStep(4);
-      setTimeout(() => setParsing(false), 500);
+      setParseStep(4); // Building profile summary
+      setTimeout(() => {
+        setParsing(false);
+        setOcrStatus('');
+      }, 600);
     } catch (err) {
       console.error('Resume parse error:', err);
-      setParsing(false); setParseStep(-1);
+      setParsing(false);
+      setParseStep(-1);
+      setOcrStatus('');
+      setFileTypeError('Failed to parse resume. Please try again or skip this step.');
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) handleResumeParse(f); };
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleResumeParse(f); };
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) handleResumeParse(f);
+  };
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const f = e.dataTransfer.files?.[0];
+    if (f) handleResumeParse(f);
+  };
 
+  // For visionary "business verification" doc upload (simulate only — no real data to extract)
   const simulateParse = () => {
-    setParsing(true); setParseStep(0);
-    [0,1,2].forEach(i => setTimeout(() => { setParseStep(i+1); if (i===2) setParsing(false); }, (i+1)*900));
+    setParsing(true);
+    setParseStep(0);
+    [0, 1, 2].forEach(i =>
+      setTimeout(() => {
+        setParseStep(i + 1);
+        if (i === 2) setParsing(false);
+      }, (i + 1) * 900),
+    );
   };
 
   const handleSubmit = async () => {
     if (form.password !== form.confirmPassword) return setError('Passwords do not match.');
+    const dobErr = ageError(form.dob, role);
+    if (dobErr) return setError(dobErr);
     try {
       const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
       await setDoc(doc(db, 'users', cred.user.uid), {
-        uid: cred.user.uid, email: form.email,
+        uid: cred.user.uid,
+        email: form.email,
         role: role === 'talent' ? 'freelancer' : 'client',
-        isAdmin: false, fullName: form.fullName, dob: form.dob, age,
-        country: form.country, timezone: form.timezone,
+        isAdmin: false,
+        fullName: form.fullName,
+        dob: form.dob,
+        age: calcAge(form.dob),
+        country: form.country,
+        timezone: form.timezone,
         ...(role === 'talent'
-          ? { primaryRole: form.primaryRole, yearsExp: form.yearsExp, industry: form.industry, portfolioUrl: form.portfolioUrl, linkedinUrl: form.linkedinUrl, collabType: form.collabType, availability: form.availability, projectSize: form.projectSize, hourlyRate: form.hourlyRate, languages: form.languages, resumeData: parsedResume || null }
-          : { companyName: form.companyName, teamSize: form.teamSize, websiteUrl: form.websiteUrl, hiringFreq: form.hiringFreq, talentCats: form.talentCats, budget: form.budget, contractDuration: form.contractDuration, workflow: form.workflow }),
+          ? {
+              primaryRole: form.primaryRole,
+              yearsExp: form.yearsExp,
+              industry: form.industry,
+              portfolioUrl: form.portfolioUrl,
+              linkedinUrl: form.linkedinUrl,
+              collabType: form.collabType,
+              availability: form.availability,
+              projectSize: form.projectSize,
+              hourlyRate: form.hourlyRate,
+              languages: form.languages,
+              resumeData: parsedResume || null,
+            }
+          : {
+              companyName: form.companyName,
+              teamSize: form.teamSize,
+              websiteUrl: form.websiteUrl,
+              hiringFreq: form.hiringFreq,
+              talentCats: form.talentCats,
+              budget: form.budget,
+              contractDuration: form.contractDuration,
+              workflow: form.workflow,
+            }),
         createdAt: serverTimestamp(),
       });
       navigate(role === 'talent' ? '/freelancer/dashboard' : '/client/dashboard');
-    } catch (err: any) { setError(err.message); }
+    } catch (err: any) {
+      setError(err.message);
+    }
   };
 
   const wrap: React.CSSProperties = { maxWidth: 520, margin: '0 auto', padding: '3rem 1rem' };
@@ -300,14 +533,20 @@ Return only the JSON, no markdown, no preamble.`;
           <p style={{ fontSize: 14, color: C.softGray, textAlign: 'center', marginBottom: '3rem' }}>Choose the path that defines your role on the platform.</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: `0.5px solid ${C.border}`, borderRadius: 16, overflow: 'hidden' }}>
             {([
-              { id: 'talent' as Role, label: 'Talent', tag: 'Independent Professional', desc: 'Build your reputation, showcase your expertise, and collaborate on premium milestone-driven projects.', dot: C.green, cta: 'Begin your profile' },
-              { id: 'visionary' as Role, label: 'Visionary', tag: 'Business / Studio', desc: 'Hire elite professionals, manage high-value projects, and scale execution with confidence.', dot: C.gold, cta: 'Create workspace' },
+              { id: 'talent' as Role, label: 'Talent', tag: 'Independent Professional', desc: 'Build your reputation, showcase your expertise, and collaborate on premium milestone-driven projects.', dot: C.green, cta: 'Begin your profile', note: 'Must be 16+' },
+              { id: 'visionary' as Role, label: 'Visionary', tag: 'Business / Studio', desc: 'Hire elite professionals, manage high-value projects, and scale execution with confidence.', dot: C.gold, cta: 'Create workspace', note: 'Must be 18+' },
             ]).map((r, i) => (
-              <div key={r.id} onClick={() => { setRole(r.id); setStep(1); }}
+              <div
+                key={r.id}
+                onClick={() => { setRole(r.id); setStep(1); }}
                 style={{ padding: '3rem 2.5rem', cursor: 'pointer', background: C.white, borderRight: i === 0 ? `0.5px solid ${C.border}` : 'none', transition: 'background 0.2s', display: 'flex', flexDirection: 'column', gap: '2rem' }}
                 onMouseEnter={e => (e.currentTarget.style.background = C.bg)}
-                onMouseLeave={e => (e.currentTarget.style.background = C.white)}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.dot }} />
+                onMouseLeave={e => (e.currentTarget.style.background = C.white)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.dot }} />
+                  <span style={{ fontSize: 10, color: C.softGray, letterSpacing: '0.08em' }}>{r.note}</span>
+                </div>
                 <div>
                   <p style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.softGray, marginBottom: '0.75rem' }}>{r.tag}</p>
                   <h2 style={{ fontSize: 26, fontWeight: 500, color: C.text, marginBottom: '1rem', lineHeight: 1.2 }}>Join as<br />{r.label}</h2>
@@ -331,7 +570,77 @@ Return only the JSON, no markdown, no preamble.`;
     );
   }
 
-  // ── Talent steps ──
+  // ── Shared Identity step (Step 1) ──
+  const renderIdentityStep = (isTalent: boolean) => (
+    <>
+      <p style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.softGray, marginBottom: '0.4rem' }}>Step 1 of 5</p>
+      <h2 style={{ fontSize: 24, fontWeight: 500, color: C.text, marginBottom: '0.4rem' }}>Your identity</h2>
+      <p style={{ fontSize: 13, color: C.softGray, marginBottom: '2.5rem', lineHeight: 1.6 }}>
+        {isTalent
+          ? 'The foundation of your professional profile on MGNOVA.'
+          : "You're joining as a Visionary — a business or creative studio seeking elite talent."}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field label="Full name">
+          <TextInput value={form.fullName} onChange={v => set('fullName', v)} placeholder={isTalent ? 'Alexandra Moore' : 'Jordan Ellis'} />
+        </Field>
+        <Field label={`Date of birth ${isTalent ? '(16+ required)' : '(18+ required)'}`}>
+          <TextInput type="date" value={form.dob} onChange={v => set('dob', v)} max={maxDobForAge(isTalent ? 16 : 18)} />
+        </Field>
+      </div>
+      <AgeBanner dob={form.dob} role={role} />
+      <Field label="Email address">
+        <TextInput value={form.email} onChange={v => set('email', v)} placeholder={isTalent ? 'alex@studio.io' : 'jordan@aureliangroup.com'} />
+      </Field>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field label="Password">
+          <TextInput type="password" value={form.password} onChange={v => set('password', v)} placeholder="Min. 8 characters" />
+        </Field>
+        <Field label="Confirm password">
+          <TextInput type="password" value={form.confirmPassword} onChange={v => set('confirmPassword', v)} placeholder="Repeat password" />
+        </Field>
+        <Field label="Country">
+          <TextInput value={form.country} onChange={v => set('country', v)} placeholder={isTalent ? 'India' : 'United Kingdom'} />
+        </Field>
+        <Field label="Timezone">
+          <TextInput value={form.timezone} onChange={v => set('timezone', v)} placeholder={isTalent ? 'IST (UTC+5:30)' : 'GMT (UTC+0)'} />
+        </Field>
+      </div>
+      <Btn onClick={() => setStep(2)} disabled={!dobOk(form.dob)}>Continue</Btn>
+      {!dobOk(form.dob) && form.dob && (
+        <p style={{ fontSize: 11, color: C.copper, textAlign: 'center', marginTop: 8 }}>
+          {ageError(form.dob, role) || 'Please enter a valid date of birth to continue.'}
+        </p>
+      )}
+      <Btn secondary onClick={() => setRole(null)}>← Back</Btn>
+    </>
+  );
+
+  // ── Parse progress display ──
+  const renderParseProgress = (states: string[]) => (
+    parseStep >= 0 ? (
+      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 12, padding: '1.5rem', marginBottom: '1.5rem', background: C.white }}>
+        {states.map((s, i) => {
+          // For OCR step (index 2), show live status
+          const label = (i === 1 && ocrStatus) ? ocrStatus : s;
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < states.length - 1 ? `0.5px solid ${C.inputBg}` : 'none' }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', border: `0.5px solid ${i <= parseStep ? C.green : C.border}`, background: i < parseStep ? C.green : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {i < parseStep
+                  ? <Check size={12} color={C.white} />
+                  : i === parseStep && parsing
+                    ? <Loader size={12} color={C.softGray} style={{ animation: 'spin 1s linear infinite' }} />
+                    : <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.border, display: 'inline-block' }} />}
+              </div>
+              <span style={{ fontSize: 13, color: i <= parseStep ? C.text : C.softGray }}>{label}</span>
+            </div>
+          );
+        })}
+      </div>
+    ) : null
+  );
+
+  // ── Talent flow ──
   if (role === 'talent') {
     return (
       <div style={{ minHeight: '100vh', background: C.bg, padding: '2rem 1rem' }}>
@@ -340,27 +649,7 @@ Return only the JSON, no markdown, no preamble.`;
           <ProgressBar step={step} totalSteps={totalSteps} />
           {error && <p style={{ color: C.copper, fontSize: 13, marginBottom: '1rem' }}>{error}</p>}
 
-          {step === 1 && (
-            <>
-              <p style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.softGray, marginBottom: '0.4rem' }}>Step 1 of 5</p>
-              <h2 style={{ fontSize: 24, fontWeight: 500, color: C.text, marginBottom: '0.4rem' }}>Your identity</h2>
-              <p style={{ fontSize: 13, color: C.softGray, marginBottom: '2.5rem', lineHeight: 1.6 }}>The foundation of your professional profile on MGNOVA.</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <Field label="Full name"><TextInput value={form.fullName} onChange={v => set('fullName', v)} placeholder="Alexandra Moore" /></Field>
-                <Field label="Date of birth"><TextInput type="date" value={form.dob} onChange={v => set('dob', v)} /></Field>
-              </div>
-              {age && <p style={{ fontSize: 12, color: C.softGray, marginTop: -8, marginBottom: '1.25rem' }}>Age calculated automatically: <strong style={{ color: C.text }}>{age} years</strong></p>}
-              <Field label="Email address"><TextInput value={form.email} onChange={v => set('email', v)} placeholder="alex@studio.io" /></Field>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <Field label="Password"><TextInput type="password" value={form.password} onChange={v => set('password', v)} placeholder="Min. 8 characters" /></Field>
-                <Field label="Confirm password"><TextInput type="password" value={form.confirmPassword} onChange={v => set('confirmPassword', v)} placeholder="Repeat password" /></Field>
-                <Field label="Country"><TextInput value={form.country} onChange={v => set('country', v)} placeholder="India" /></Field>
-                <Field label="Timezone"><TextInput value={form.timezone} onChange={v => set('timezone', v)} placeholder="IST (UTC+5:30)" /></Field>
-              </div>
-              <Btn onClick={() => setStep(2)}>Continue</Btn>
-              <Btn secondary onClick={() => setRole(null)}>← Back</Btn>
-            </>
-          )}
+          {step === 1 && renderIdentityStep(true)}
 
           {step === 2 && (
             <>
@@ -386,20 +675,26 @@ Return only the JSON, no markdown, no preamble.`;
             <>
               <p style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.softGray, marginBottom: '0.4rem' }}>Step 3 of 5</p>
               <h2 style={{ fontSize: 24, fontWeight: 500, color: C.text, marginBottom: '0.4rem' }}>Resume & AI parsing</h2>
-              <p style={{ fontSize: 13, color: C.softGray, marginBottom: '2.5rem', lineHeight: 1.6 }}>Upload your resume. Our AI extracts your profile data — you decide what to use.</p>
+              <p style={{ fontSize: 13, color: C.softGray, marginBottom: '0.75rem', lineHeight: 1.6 }}>
+                Upload your resume. Images are processed with real OCR, PDFs/DOCX via AI document parsing. You decide what data to keep.
+              </p>
 
-              <input ref={fileInputRef} type="file" accept={ACCEPTED_EXT} style={{ display: 'none' }} onChange={handleFileChange} />
-
+              {/* Format badges */}
               <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap' }}>
                 {[
-                  { label: 'PDF', bg: '#fdf0ee', color: C.copper, border: C.dust },
-                  { label: 'DOCX', bg: '#eef3ee', color: C.green, border: '#a8c4aa' },
-                  { label: 'DOC', bg: '#eef3ee', color: C.green, border: '#a8c4aa' },
-                  { label: 'JPG / PNG', bg: C.inputBg, color: C.softGray, border: C.border },
+                  { label: 'PDF', bg: '#fdf0ee', color: C.copper, border: C.dust, note: 'AI parsed' },
+                  { label: 'DOCX', bg: '#eef3ee', color: C.green, border: '#a8c4aa', note: 'AI parsed' },
+                  { label: 'DOC', bg: '#eef3ee', color: C.green, border: '#a8c4aa', note: 'AI parsed' },
+                  { label: 'JPG / PNG', bg: C.inputBg, color: C.softGray, border: C.border, note: 'OCR' },
                 ].map(fmt => (
-                  <span key={fmt.label} style={{ fontSize: 10, padding: '3px 10px', borderRadius: 100, background: fmt.bg, color: fmt.color, border: `0.5px solid ${fmt.border}`, letterSpacing: '0.08em', fontWeight: 500 }}>{fmt.label}</span>
+                  <div key={fmt.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 100, background: fmt.bg, color: fmt.color, border: `0.5px solid ${fmt.border}`, letterSpacing: '0.08em', fontWeight: 500 }}>{fmt.label}</span>
+                    <span style={{ fontSize: 10, color: C.softGray }}>{fmt.note}</span>
+                  </div>
                 ))}
               </div>
+
+              <input ref={fileInputRef} type="file" accept={ACCEPTED_EXT} style={{ display: 'none' }} onChange={handleFileChange} />
 
               {/* Drop zone */}
               <div
@@ -417,7 +712,9 @@ Return only the JSON, no markdown, no preamble.`;
                       <p style={{ fontSize: 14, fontWeight: 500, color: C.text, marginBottom: 4 }}>{resumeFile.name}</p>
                       <p style={{ fontSize: 12, color: C.softGray }}>{getFileTypeLabel(resumeFile)} · {(resumeFile.size / 1024).toFixed(0)} KB · Click to replace</p>
                     </div>
-                    {resumePreview && <img src={resumePreview} alt="Resume preview" style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, marginTop: 4, objectFit: 'cover', border: `0.5px solid ${C.border}` }} />}
+                    {resumePreview && (
+                      <img src={resumePreview} alt="Resume preview" style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, marginTop: 4, objectFit: 'cover', border: `0.5px solid ${C.border}` }} />
+                    )}
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
@@ -433,22 +730,7 @@ Return only the JSON, no markdown, no preamble.`;
               </div>
 
               {/* Parse progress */}
-              {parseStep >= 0 && (
-                <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 12, padding: '1.5rem', marginBottom: '1.5rem', background: C.white }}>
-                  {PARSE_STATES.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < PARSE_STATES.length - 1 ? `0.5px solid ${C.inputBg}` : 'none' }}>
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', border: `0.5px solid ${i <= parseStep ? C.green : C.border}`, background: i < parseStep ? C.green : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        {i < parseStep
-                          ? <Check size={12} color={C.white} />
-                          : i === parseStep && parsing
-                            ? <Loader size={12} color={C.softGray} style={{ animation: 'spin 1s linear infinite' }} />
-                            : <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.border, display: 'inline-block' }} />}
-                      </div>
-                      <span style={{ fontSize: 13, color: i <= parseStep ? C.text : C.softGray }}>{s}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {renderParseProgress(TALENT_PARSE_STATES)}
 
               {/* Extracted data panel */}
               {parsedResume && !parsing && (
@@ -463,13 +745,13 @@ Return only the JSON, no markdown, no preamble.`;
                         <p style={{ fontSize: 11, color: C.softGray }}>{parsedResume.title || 'Extracted from resume'}</p>
                       </div>
                     </div>
-                    <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 100, background: '#eef3ee', color: C.green, border: `0.5px solid #a8c4aa`, letterSpacing: '0.08em' }}>AI extracted</span>
+                    <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 100, background: '#eef3ee', color: C.green, border: `0.5px solid #a8c4aa`, letterSpacing: '0.08em' }}>
+                      {isImageFile(resumeFile!) ? 'OCR extracted' : 'AI extracted'}
+                    </span>
                   </div>
-
                   <div style={{ padding: '0.75rem 1.5rem', background: C.bg, borderBottom: `0.5px solid ${C.border}` }}>
                     <p style={{ fontSize: 12, color: C.softGray, lineHeight: 1.5 }}>Toggle each field to choose what gets imported into your profile.</p>
                   </div>
-
                   <div style={{ padding: '0.5rem 1.5rem 1rem', background: C.white }}>
                     <ExtractedRow label="Full name" value={parsedResume.fullName} used={usedFields.fullName} onToggle={() => toggleUsed('fullName')} />
                     <ExtractedRow label="Email" value={parsedResume.email} used={usedFields.email} onToggle={() => toggleUsed('email')} />
@@ -481,7 +763,6 @@ Return only the JSON, no markdown, no preamble.`;
                     <ExtractedRow label="Skills" value={parsedResume.skills} used={usedFields.skills} onToggle={() => toggleUsed('skills')} />
                     <ExtractedRow label="Summary" value={parsedResume.summary} used={usedFields.summary} onToggle={() => toggleUsed('summary')} />
                   </div>
-
                   <div style={{ padding: '0 1.5rem 1.25rem', background: C.white }}>
                     <button type="button" onClick={applyExtractedData} style={{ width: '100%', padding: '11px', background: C.green, color: C.white, border: 'none', borderRadius: 8, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 }}>
                       Apply selected fields to profile
@@ -550,11 +831,12 @@ Return only the JSON, no markdown, no preamble.`;
             </>
           )}
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  // ── Visionary steps ──
+  // ── Visionary flow ──
   return (
     <div style={{ minHeight: '100vh', background: C.bg, padding: '2rem 1rem' }}>
       <div style={wrap}>
@@ -562,27 +844,7 @@ Return only the JSON, no markdown, no preamble.`;
         <ProgressBar step={step} totalSteps={totalSteps} />
         {error && <p style={{ color: C.copper, fontSize: 13, marginBottom: '1rem' }}>{error}</p>}
 
-        {step === 1 && (
-          <>
-            <p style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.softGray, marginBottom: '0.4rem' }}>Step 1 of 5</p>
-            <h2 style={{ fontSize: 24, fontWeight: 500, color: C.text, marginBottom: '0.4rem' }}>Your identity</h2>
-            <p style={{ fontSize: 13, color: C.softGray, marginBottom: '2.5rem', lineHeight: 1.6 }}>You're joining as a Visionary — a business or creative studio seeking elite talent.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Full name"><TextInput value={form.fullName} onChange={v => set('fullName', v)} placeholder="Jordan Ellis" /></Field>
-              <Field label="Date of birth"><TextInput type="date" value={form.dob} onChange={v => set('dob', v)} /></Field>
-            </div>
-            {age && <p style={{ fontSize: 12, color: C.softGray, marginTop: -8, marginBottom: '1.25rem' }}>Age: <strong style={{ color: C.text }}>{age} years</strong></p>}
-            <Field label="Email address"><TextInput value={form.email} onChange={v => set('email', v)} placeholder="jordan@aureliangroup.com" /></Field>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Password"><TextInput type="password" value={form.password} onChange={v => set('password', v)} placeholder="Min. 8 characters" /></Field>
-              <Field label="Confirm password"><TextInput type="password" value={form.confirmPassword} onChange={v => set('confirmPassword', v)} placeholder="Repeat" /></Field>
-              <Field label="Country"><TextInput value={form.country} onChange={v => set('country', v)} placeholder="United Kingdom" /></Field>
-              <Field label="Timezone"><TextInput value={form.timezone} onChange={v => set('timezone', v)} placeholder="GMT (UTC+0)" /></Field>
-            </div>
-            <Btn onClick={() => setStep(2)}>Continue</Btn>
-            <Btn secondary onClick={() => setRole(null)}>← Back</Btn>
-          </>
-        )}
+        {step === 1 && renderIdentityStep(false)}
 
         {step === 2 && (
           <>
@@ -686,7 +948,6 @@ Return only the JSON, no markdown, no preamble.`;
           </>
         )}
       </div>
-
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
